@@ -106,25 +106,25 @@ export type ProjectCreatePayload = {
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  return window.sessionStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
-  window.localStorage.setItem(TOKEN_KEY, token);
+  window.sessionStorage.setItem(TOKEN_KEY, token);
 }
 
 export function clearToken(): void {
-  window.localStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(DEMO_MODE_KEY);
+  window.sessionStorage.removeItem(TOKEN_KEY);
+  window.sessionStorage.removeItem(DEMO_MODE_KEY);
 }
 
 function isOfflineDemoMode(): boolean {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(DEMO_MODE_KEY) === "true" && getToken() === LOCAL_DEMO_TOKEN;
+  return window.sessionStorage.getItem(DEMO_MODE_KEY) === "true" && getToken() === LOCAL_DEMO_TOKEN;
 }
 
 function setOfflineDemoMode(enabled: boolean): void {
-  window.localStorage.setItem(DEMO_MODE_KEY, enabled ? "true" : "false");
+  window.sessionStorage.setItem(DEMO_MODE_KEY, enabled ? "true" : "false");
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
