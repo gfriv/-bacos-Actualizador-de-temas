@@ -52,6 +52,7 @@ def managed_file_response(
     download_name: str,
     media_type: str,
 ) -> Response | FileResponse:
+    safe_download_name = _safe_download_name(download_name)
     if stored_path.startswith("db://"):
         key = stored_path.removeprefix("db://")
         blob = db.scalar(select(FileBlob).where(FileBlob.storage_key == key))
@@ -60,7 +61,7 @@ def managed_file_response(
         return Response(
             content=blob.data,
             media_type=media_type or blob.content_type,
-            headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+            headers={"Content-Disposition": f'attachment; filename="{safe_download_name}"'},
         )
 
     root = Path(allowed_root).resolve()
@@ -69,4 +70,9 @@ def managed_file_response(
         raise HTTPException(status_code=403, detail="Archivo fuera del almacén permitido.")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="Archivo no encontrado.")
-    return FileResponse(resolved, media_type=media_type, filename=download_name)
+    return FileResponse(resolved, media_type=media_type, filename=safe_download_name)
+
+
+def _safe_download_name(download_name: str) -> str:
+    safe_name = Path(download_name).name.replace('"', "").replace("\r", "").replace("\n", "")
+    return safe_name or "descarga"

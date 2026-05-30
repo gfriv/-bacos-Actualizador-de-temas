@@ -35,6 +35,7 @@ import {
   type ModelInfo,
   type ProviderValidationResult,
 } from "@/lib/ai/providers";
+import { API_BASE_URL, getToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ import {
 import { HelpTooltip, TooltipProvider } from "@/components/ui/tooltip";
 
 const NO_MODEL = "__no_model__";
+const BACKEND_IS_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(API_BASE_URL);
 
 export function AIProviderSetup({
   compact = false,
@@ -107,6 +109,12 @@ export function AIProviderSetup({
   );
   const isOllama = providerId === "ollama";
   const requiresApiKey = descriptor?.requiresApiKey ?? false;
+  const hasBackendSession = Boolean(getToken());
+  const providerActionBlockedReason = !hasBackendSession
+    ? "Guarda la configuración ahora y valida el proveedor después de entrar. La validación requiere sesión para evitar abuso de la API como proxy."
+    : isOllama && !BACKEND_IS_LOCAL
+      ? "Ollama solo funciona si el backend corre en el mismo equipo o red que Ollama. En Vercel no puede acceder al Ollama de tu ordenador."
+      : null;
 
   useEffect(() => {
     if (providerOptions.length === 0) return;
@@ -147,6 +155,10 @@ export function AIProviderSetup({
   }
 
   async function handleValidate() {
+    if (providerActionBlockedReason) {
+      toast.warning(providerActionBlockedReason);
+      return;
+    }
     if (requiresApiKey && !apiKey.trim()) {
       toast.error("Introduce una API key para validar este proveedor.");
       return;
@@ -175,6 +187,10 @@ export function AIProviderSetup({
   }
 
   async function handleListModels() {
+    if (providerActionBlockedReason) {
+      toast.warning(providerActionBlockedReason);
+      return;
+    }
     setLoading("models");
     try {
       const provider = createAIProvider(currentConfig, descriptor);
@@ -210,6 +226,10 @@ export function AIProviderSetup({
   }
 
   async function handlePullModel() {
+    if (providerActionBlockedReason) {
+      toast.warning(providerActionBlockedReason);
+      return;
+    }
     if (!pullConfirmed) {
       toast.error("Confirma explicitamente la descarga del modelo.");
       return;
@@ -341,7 +361,7 @@ export function AIProviderSetup({
               type="button"
               variant="outline"
               onClick={handleListModels}
-              disabled={loading !== null}
+              disabled={loading !== null || Boolean(providerActionBlockedReason)}
             >
               {loading === "models" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -350,7 +370,11 @@ export function AIProviderSetup({
               )}
               Modelos
             </Button>
-            <Button type="button" onClick={handleValidate} disabled={loading !== null}>
+            <Button
+              type="button"
+              onClick={handleValidate}
+              disabled={loading !== null || Boolean(providerActionBlockedReason)}
+            >
               {loading === "validate" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -387,6 +411,12 @@ export function AIProviderSetup({
                   puede acceder al Ollama de tu ordenador; para modo local usa backend local.
                 </p>
               </div>
+              {!BACKEND_IS_LOCAL ? (
+                <div className="rounded-md border border-abacos-yellow/60 bg-yellow-50 p-3 text-xs leading-5 text-abacos-black">
+                  Backend remoto detectado: el selector guardará la preferencia, pero validación,
+                  listado de modelos y descarga quedan bloqueados hasta ejecutar backend local.
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 {recommendedModels.map((item) => (
                   <button
@@ -408,7 +438,7 @@ export function AIProviderSetup({
                   type="button"
                   variant="outline"
                   onClick={handlePullModel}
-                  disabled={loading !== null}
+                  disabled={loading !== null || Boolean(providerActionBlockedReason)}
                 >
                   {loading === "pull" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

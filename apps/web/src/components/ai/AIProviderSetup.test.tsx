@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AIProviderSetup } from "@/components/ai/AIProviderSetup";
 
 vi.mock("@/lib/api", () => ({
+  API_BASE_URL: "https://abacos-api.vercel.app/api",
+  getToken: vi.fn(() => null),
   apiFetch: vi.fn(async (path: string) => {
     if (path === "/ai/providers") {
       return [
@@ -43,5 +45,8 @@ describe("AIProviderSetup", () => {
     expect(screen.getByRole("button", { name: "API" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Local" })).toBeInTheDocument();
     expect(await screen.findByText(/Ollama debe estar arrancado/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Modelos/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Validar/i })).toBeDisabled();
+    expect(screen.getByText(/Backend remoto detectado/i)).toBeInTheDocument();
   });
 });

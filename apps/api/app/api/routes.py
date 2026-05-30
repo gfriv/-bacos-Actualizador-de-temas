@@ -32,6 +32,7 @@ from app.document_processing.section_splitter import split_sections
 from app.llm.model_router import ModelRouter
 from app.llm.providers.ollama_provider import OllamaProvider
 from app.llm.providers.registry import PROVIDER_DESCRIPTORS
+from app.llm.runtime_policy import assert_provider_runtime_allowed, safe_provider_error
 from app.llm.schemas import (
     AIProviderConfig,
     AIProviderDescriptor,
@@ -91,24 +92,32 @@ def list_ai_providers() -> list[AIProviderDescriptor]:
 
 
 @router.post("/ai/providers/validate", response_model=ProviderValidationResult)
-async def validate_ai_provider(payload: ProviderValidationRequest) -> ProviderValidationResult:
+async def validate_ai_provider(
+    payload: ProviderValidationRequest,
+    current_user: User = Depends(get_current_user),
+) -> ProviderValidationResult:
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher, UserRole.reviewer})
     try:
         return await ModelRouter(provider_config=payload.config).validate_connection()
     except Exception as exc:
         return ProviderValidationResult(
             ok=False,
             provider_id=payload.config.provider_id,
-            message=str(exc),
+            message=safe_provider_error(exc),
             models=[],
         )
 
 
 @router.post("/ai/providers/models")
-async def list_ai_models(payload: ModelListRequest) -> dict[str, list[dict[str, object]]]:
+async def list_ai_models(
+    payload: ModelListRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, list[dict[str, object]]]:
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher, UserRole.reviewer})
     try:
         models = await ModelRouter(provider_config=payload.config).list_models()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=safe_provider_error(exc)) from exc
     return {"models": [model.model_dump() for model in models]}
 
 
@@ -126,7 +135,7 @@ async def generate_ai_text(
             payload.input.generation_config,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=safe_provider_error(exc)) from exc
     return GenerateTextResult(text=text, provider_id=payload.config.provider_id, model=router.model_name)
 
 
@@ -148,7 +157,7 @@ async def generate_ai_structured(
             payload.input.generation_config,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=safe_provider_error(exc)) from exc
     return {"raw": text}
 
 
@@ -165,7 +174,13 @@ async def pull_ollama_model(
             status_code=403,
             detail="La descarga automÃ¡tica de modelos Ollama estÃ¡ deshabilitada. Activa OLLAMA_PULL_ENABLED=true en entorno local.",
         )
-    return await OllamaProvider(base_url=settings.ollama_base_url).pull_model(payload.model)
+    try:
+        assert_provider_runtime_allowed(
+            AIProviderConfig(provider_id="ollama", mode="local", base_url=settings.ollama_base_url)
+        )
+        return await OllamaProvider(base_url=settings.ollama_base_url).pull_model(payload.model)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=safe_provider_error(exc)) from exc
 
 
 @router.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)

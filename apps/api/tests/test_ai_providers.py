@@ -9,15 +9,36 @@ def test_ai_provider_catalog_is_public(client: TestClient) -> None:
     assert {"mock", "openai", "gemini", "anthropic", "openai_compatible", "ollama"}.issubset(provider_ids)
 
 
-def test_mock_provider_validation_is_public(client: TestClient) -> None:
+def test_provider_validation_requires_authentication(client: TestClient) -> None:
     response = client.post(
         "/api/ai/providers/validate",
+        json={"config": {"provider_id": "mock", "mode": "local"}},
+    )
+
+    assert response.status_code == 401
+
+
+def test_authenticated_mock_provider_validation(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/ai/providers/validate",
+        headers=auth_headers,
         json={"config": {"provider_id": "mock", "mode": "local"}},
     )
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert response.json()["provider_id"] == "mock"
+
+
+def test_model_listing_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        "/api/ai/providers/models",
+        json={"config": {"provider_id": "mock", "mode": "local"}},
+    )
+
+    assert response.status_code == 401
 
 
 def test_generate_text_requires_authentication(client: TestClient) -> None:
@@ -69,3 +90,51 @@ def test_ollama_pull_is_disabled_by_default(client: TestClient, auth_headers: di
 
     assert response.status_code == 403
     assert "OLLAMA_PULL_ENABLED" in response.json()["detail"]
+
+
+def test_remote_runtime_blocks_ollama_without_calling_localhost(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch
+) -> None:
+    monkeypatch.setenv("VERCEL", "1")
+
+    response = client.post(
+        "/api/ai/providers/validate",
+        headers=auth_headers,
+        json={
+            "config": {
+                "provider_id": "ollama",
+                "mode": "local",
+                "base_url": "http://localhost:11434",
+                "model": "qwen2.5:7b-instruct",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert "Ollama local solo" in response.json()["message"]
+
+
+def test_remote_runtime_blocks_private_openai_compatible_endpoint_and_redacts_key(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch
+) -> None:
+    monkeypatch.setenv("VERCEL", "1")
+    secret = "sk-test-secret-should-not-leak"
+
+    response = client.post(
+        "/api/ai/providers/models",
+        headers=auth_headers,
+        json={
+            "config": {
+                "provider_id": "openai_compatible",
+                "mode": "api",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "api_key": secret,
+                "model": "local-model",
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert "HTTPS públicos" in response.json()["detail"]
+    assert secret not in response.text

@@ -39,6 +39,8 @@ La app permite elegir proveedor al inicio de cada sesión. El usuario puede usar
 
 La configuración del usuario no se guarda en base de datos. El frontend la conserva en `sessionStorage` y la envía como `X-Abacos-AI-Config` solo a operaciones del pipeline. El backend valida esa cabecera con `AIProviderConfig` y construye un `ModelRouter(provider_config=...)`.
 
+Las operaciones que llaman realmente a un proveedor (`validate`, `models`, `generate`, `pull`) requieren autenticación. Solo el catálogo de proveedores es público. En Vercel u otro runtime serverless remoto, el backend bloquea Ollama y endpoints `localhost`, IP privadas o no HTTPS para evitar SSRF y para no intentar acceder al Ollama local del navegador del usuario.
+
 Los endpoints de catálogo y validación son:
 
 ```text

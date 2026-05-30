@@ -6,6 +6,7 @@ from app.llm.providers.gemini_provider import GeminiProvider
 from app.llm.providers.mock_provider import MockProvider
 from app.llm.providers.ollama_provider import OllamaProvider
 from app.llm.providers.openai_compatible_provider import OpenAICompatibleProvider
+from app.llm.runtime_policy import assert_provider_runtime_allowed, effective_provider_config
 from app.llm.schemas import AIProviderConfig, ModelConfig, ModelInfo, ProviderValidationResult
 
 
@@ -14,6 +15,8 @@ class ModelRouter:
         self.provider_config = provider_config
         selected = provider_config.provider_id if provider_config else provider_name or settings.llm_provider
         self.provider_id = selected
+        runtime_config = provider_config or effective_provider_config(selected)
+        assert_provider_runtime_allowed(runtime_config)
 
         if selected == "mock":
             self.provider = MockProvider()

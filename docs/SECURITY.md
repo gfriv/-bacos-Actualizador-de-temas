@@ -12,12 +12,15 @@
 - LLM keys read only from backend environment variables.
 - Search API keys read only from backend environment variables.
 - Optional user-supplied AI keys are kept in browser `sessionStorage` and sent only as an ephemeral `X-Abacos-AI-Config` header for pipeline calls.
+- AI provider validation, model listing, generation and Ollama pull endpoints require authenticated backend sessions. The public catalog only returns provider metadata.
+- Remote/serverless runtimes block Ollama and private/local LLM endpoints to avoid SSRF and false attempts to reach the user's local machine from Vercel.
 - Optional demo access seeded by backend only, controlled through `DEMO_ACCESS_ENABLED`.
 - Public registration always creates `teacher`; `admin` is created only by server-side script.
 - Public response schemas do not expose internal storage paths.
 - Authenticated download endpoints validate project access and path containment before serving files.
 - Invalid or damaged DOCX/PDF uploads return `422` without leaking filesystem paths.
 - Generic AI generation endpoints require authentication so the API cannot be abused as a public LLM proxy.
+- Provider error responses are sanitized so API keys are not reflected in HTTP responses, UI toasts or logs.
 
 ## AI Credentials
 
