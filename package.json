@@ -1,14 +1,91 @@
 {
   "name": "abacos-academic-update-system",
   "version": "0.1.0",
+  "description": "Aplicación documental docente para actualización científica y generación de recursos didácticos con revisión humana.",
+  "author": "Centro de Estudios Ábacos",
   "private": true,
   "packageManager": "pnpm@11.4.0",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev:web": "corepack pnpm --dir apps/web dev",
     "build:web": "corepack pnpm --dir apps/web build",
     "lint:web": "corepack pnpm --dir apps/web lint",
     "typecheck:web": "corepack pnpm --dir apps/web typecheck",
     "test:web": "corepack pnpm --dir apps/web test",
+    "desktop:compile": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json",
+    "desktop:dev": "cross-env NEXT_PUBLIC_API_URL=http://127.0.0.1:8765/api ABACOS_RENDERER_URL=http://127.0.0.1:3000 concurrently -k -n WEB,ELECTRON -c red,blue \"corepack pnpm --dir apps/web dev\" \"wait-on http://127.0.0.1:3000 && node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && electron .\"",
+    "desktop:build:web": "cross-env DESKTOP_BUILD=1 NEXT_PUBLIC_API_URL=http://127.0.0.1:8765/api corepack pnpm --dir apps/web build && node scripts/prepare-electron-standalone.mjs",
+    "desktop:build": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web",
+    "installer:win": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web && electron-builder --win nsis --x64",
+    "installer:win:offline": "electron-builder --win nsis --x64",
+    "installer:mac": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web && electron-builder --mac dmg",
+    "installer:clean": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item -LiteralPath release,dist-electron -Recurse -Force -ErrorAction SilentlyContinue\"",
     "test": "corepack pnpm test:web"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.0",
+    "cross-env": "^10.1.0",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "net.academiaabaco.abacosai",
+    "productName": "Ábacos IA",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "apps/web/.next/standalone-electron/**/*",
+      "apps/web/public/**/*",
+      "apps/api/**/*",
+      "workers/**/*",
+      "package.json",
+      "!apps/api/.venv/**/*",
+      "!apps/api/abacos.db",
+      "!**/__pycache__/**/*",
+      "!**/*.pyc",
+      "!storage/**/*",
+      "!**/*.log"
+    ],
+    "extraResources": [
+      {
+        "from": "apps/web/.next/static",
+        "to": "apps/web/.next/static"
+      },
+      {
+        "from": "apps/web/public",
+        "to": "apps/web/public"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "AbacosIA-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ábacos IA",
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.education"
+    }
   }
 }

@@ -1,6 +1,7 @@
 import { BrandHeader } from "@/components/brand/BrandHeader";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { AIProviderSetup } from "@/components/ai/AIProviderSetup";
+import { FirstRunWizard } from "@/components/desktop/FirstRunWizard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
@@ -32,6 +33,7 @@ export default function LoginPage() {
           </div>
         </section>
         <div className="grid gap-4">
+          <FirstRunWizard />
           <AIProviderSetup />
           <Card className="relative overflow-hidden">
             <div className="absolute inset-x-0 top-0 h-1 bg-abacos-red" aria-hidden />

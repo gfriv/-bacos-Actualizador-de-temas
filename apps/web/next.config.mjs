@@ -7,6 +7,7 @@ const turbopackRoot = process.env.VERCEL ? __dirname : path.resolve(__dirname, "
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
+  output: process.env.DESKTOP_BUILD ? "standalone" : undefined,
   turbopack: {
     root: turbopackRoot,
   },

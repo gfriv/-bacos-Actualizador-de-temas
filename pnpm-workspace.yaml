@@ -2,5 +2,6 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  electron-winstaller: true
   sharp: true
   unrs-resolver: true

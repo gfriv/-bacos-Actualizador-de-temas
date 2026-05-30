@@ -302,6 +302,28 @@ GET /api/resources/{resource_id}/download
 
 Cada endpoint valida permisos del proyecto y comprueba que el archivo esté dentro del directorio gestionado configurado. Los informes, recursos y consolidados también pasan por `ReportQualityGate` para evitar filtraciones de rutas internas o claves.
 
+## Aplicación De Escritorio
+
+La base Electron está preparada para una demo local/escritorio:
+
+```bash
+cd Abacos
+corepack pnpm desktop:compile
+corepack pnpm desktop:dev
+corepack pnpm desktop:build
+corepack pnpm installer:win
+```
+
+El modo escritorio:
+
+- abre la misma interfaz Next.js;
+- arranca el backend FastAPI local en `127.0.0.1:8765`;
+- guarda documentos, base de datos y generados en carpetas de datos del usuario;
+- ofrece un wizard inicial para elegir API propia u Ollama local;
+- usa `http://127.0.0.1:11434/api/tags` para detectar modelos de Ollama.
+
+La versión actual todavía requiere Python/uv disponibles en el equipo para arrancar FastAPI. No es un instalador final totalmente autónomo hasta decidir si se embebe Python o se documenta como prerequisito. Ver `docs/DESKTOP.md`.
+
 ## Tests Y Calidad
 
 Frontend:

@@ -3,6 +3,8 @@ node_modules
 .vercel
 .turbo
 dist
+dist-electron
+release
 coverage
 *.log
 *.tsbuildinfo
