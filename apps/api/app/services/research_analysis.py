@@ -5,11 +5,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from unicodedata import normalize
-from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
+from app.core.brand import (
+    build_ai_notice,
+    build_artifact_header,
+    build_corporate_footer,
+    generated_at_iso,
+)
 from app.core.config import settings
 from app.db.models import (
     DocumentSection,
@@ -32,18 +37,13 @@ from app.llm.schemas import (
     ScientificSuggestion as ScientificSuggestionSchema,
 )
 from app.research.schemas import SearchResult
+from app.research.source_policy import (
+    format_assessments_markdown,
+    is_official_url,
+    validation_summary,
+)
 from app.research.web_search import WebSearchProvider, get_web_search_provider
 
-OFFICIAL_DOMAINS = (
-    "boe.es",
-    "doe.juntaex.es",
-    "educacionfpydeportes.gob.es",
-    "educagob.educacionfpydeportes.gob.es",
-    "educarex.es",
-    "todofp.es",
-    "eur-lex.europa.eu",
-    "europa.eu",
-)
 PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
 CURATED_CURRICULUM_SOURCES = {
     "infantil": [
@@ -148,6 +148,8 @@ async def build_research_analysis(
     provider_config: AIProviderConfig | None = None,
 ) -> ResearchAnalysisResult:
     provider = search_provider or get_web_search_provider()
+    generated_at = generated_at_iso()
+    provider_name, model_name = describe_ai_provider(provider_config)
     queries = build_search_queries(project, sections)
     curated_evidence = (
         await collect_curated_curriculum_evidence(project)
@@ -167,21 +169,6 @@ async def build_research_analysis(
         result for result in evidence if is_available_evidence(result) and not is_official_source(str(result.url))
     ]
 
-    reports = [
-        Report(
-            project_id=project.id,
-            report_type=ReportType.scientific_update,
-            title="Informe de actualización científica con búsqueda web",
-            content_markdown=build_scientific_report(project, sections, evidence, queries),
-        ),
-        Report(
-            project_id=project.id,
-            report_type=ReportType.curriculum_mapping,
-            title="Informe legislativo y curricular con fuentes trazables",
-            content_markdown=build_curriculum_report(project, official_evidence, evidence, queries),
-        ),
-    ]
-
     suggestions = await build_suggestions(
         project,
         sections,
@@ -189,6 +176,18 @@ async def build_research_analysis(
         official_evidence,
         evidence,
         provider_config,
+    )
+    reports = build_structured_reports(
+        project=project,
+        sections=sections,
+        evidence=evidence,
+        scientific_evidence=scientific_evidence,
+        official_evidence=official_evidence,
+        queries=queries,
+        suggestions=suggestions,
+        generated_at=generated_at,
+        provider_name=provider_name,
+        model_name=model_name,
     )
     return ResearchAnalysisResult(reports=reports, suggestions=suggestions, queries=queries, evidence=evidence)
 
@@ -335,6 +334,158 @@ def merge_evidence(primary: list[SearchResult], secondary: list[SearchResult]) -
     return merged
 
 
+def describe_ai_provider(provider_config: AIProviderConfig | None) -> tuple[str, str | None]:
+    if provider_config is not None:
+        return provider_config.provider_id, provider_config.model
+    return settings.llm_provider, settings.llm_model or ("MockProvider" if settings.llm_provider == "mock" else None)
+
+
+def build_structured_reports(
+    *,
+    project: Project,
+    sections: list[DocumentSection],
+    evidence: list[SearchResult],
+    scientific_evidence: list[SearchResult],
+    official_evidence: list[SearchResult],
+    queries: list[str],
+    suggestions: list[Suggestion],
+    generated_at: str,
+    provider_name: str,
+    model_name: str | None,
+) -> list[Report]:
+    return [
+        Report(
+            project_id=project.id,
+            report_type=ReportType.initial_diagnosis,
+            title="Diagnóstico inicial del tema",
+            content_markdown=compose_report(
+                title="Diagnóstico inicial del tema",
+                project=project,
+                generated_at=generated_at,
+                provider_name=provider_name,
+                model_name=model_name,
+                body=build_initial_diagnosis_report(project, sections, evidence),
+            ),
+        ),
+        Report(
+            project_id=project.id,
+            report_type=ReportType.scientific_update,
+            title="Informe de actualización científica con búsqueda web",
+            content_markdown=compose_report(
+                title="Informe de actualización científica",
+                project=project,
+                generated_at=generated_at,
+                provider_name=provider_name,
+                model_name=model_name,
+                body=build_scientific_report(project, sections, evidence, queries),
+            ),
+        ),
+        Report(
+            project_id=project.id,
+            report_type=ReportType.curriculum_mapping,
+            title="Informe legislativo y curricular con fuentes trazables",
+            content_markdown=compose_report(
+                title="Informe legislativo y curricular",
+                project=project,
+                generated_at=generated_at,
+                provider_name=provider_name,
+                model_name=model_name,
+                body=build_curriculum_report(project, official_evidence, evidence, queries),
+            ),
+        ),
+        Report(
+            project_id=project.id,
+            report_type=ReportType.source_validation,
+            title="Informe de validación de fuentes",
+            content_markdown=compose_report(
+                title="Informe de validación de fuentes",
+                project=project,
+                generated_at=generated_at,
+                provider_name=provider_name,
+                model_name=model_name,
+                body=build_source_validation_report(scientific_evidence, official_evidence, evidence),
+            ),
+        ),
+        Report(
+            project_id=project.id,
+            report_type=ReportType.change_proposal,
+            title="Informe de propuestas de cambio",
+            content_markdown=compose_report(
+                title="Informe de propuestas de cambio",
+                project=project,
+                generated_at=generated_at,
+                provider_name=provider_name,
+                model_name=model_name,
+                body=build_change_proposal_report(suggestions),
+            ),
+        ),
+        Report(
+            project_id=project.id,
+            report_type=ReportType.technical_traceability,
+            title="Informe técnico de trazabilidad",
+            content_markdown=compose_report(
+                title="Informe técnico de trazabilidad",
+                project=project,
+                generated_at=generated_at,
+                provider_name=provider_name,
+                model_name=model_name,
+                body=build_traceability_report(sections, evidence, queries, suggestions),
+            ),
+        ),
+    ]
+
+
+def compose_report(
+    *,
+    title: str,
+    project: Project,
+    generated_at: str,
+    provider_name: str,
+    model_name: str | None,
+    body: str,
+) -> str:
+    return "\n\n".join(
+        [
+            build_artifact_header(
+                title=title,
+                project_title=project.title,
+                generated_at=generated_at,
+                provider=provider_name,
+                model=model_name,
+            ),
+            body,
+            build_ai_notice(),
+            build_corporate_footer(),
+        ]
+    )
+
+
+def build_initial_diagnosis_report(
+    project: Project,
+    sections: list[DocumentSection],
+    evidence: list[SearchResult],
+) -> str:
+    concepts = ", ".join(extract_concept_terms(sections)[:12]) or "conceptos pendientes de detección"
+    characters = sum(len(section.content) for section in sections)
+    return (
+        "## Alcance del análisis\n\n"
+        f"- Área/especialidad: **{project.area}**.\n"
+        f"- Nivel educativo: **{project.educational_level}**.\n"
+        f"- Normativa aportada: **{project.legal_framework}**.\n"
+        f"- Secciones detectadas: **{len(sections)}**.\n"
+        f"- Extensión textual aproximada: **{characters} caracteres**.\n"
+        f"- Conceptos priorizados: {concepts}.\n\n"
+        "## Diagnóstico operativo\n\n"
+        "- El tema tiene estructura suficiente para revisión por secciones.\n"
+        "- Las sugerencias deben mantenerse localizadas y trazables.\n"
+        f"- {validation_summary(evidence)}\n\n"
+        "## Riesgos de revisión\n\n"
+        "- La normativa autonómica debe confirmarse con la documentación aportada por el profesor.\n"
+        "- Las referencias científicas no deben usarse si no pueden verificarse de forma independiente.\n"
+        "- La consolidación queda bloqueada si no hay sugerencias aprobadas o editadas."
+    )
+
+
 def build_scientific_report(
     project: Project,
     sections: list[DocumentSection],
@@ -352,6 +503,8 @@ def build_scientific_report(
         f"{format_queries(queries[:2])}\n\n"
         "## Fuentes encontradas\n\n"
         f"{evidence_markdown}\n\n"
+        "## Calidad de fuentes\n\n"
+        f"{format_assessments_markdown(evidence[:8])}\n\n"
         "## Criterio de uso\n\n"
         "- No se inventan referencias.\n"
         "- Si una fuente no es suficientemente específica, la sugerencia queda como aspecto a verificar.\n"
@@ -382,10 +535,75 @@ def build_curriculum_report(
         f"{format_queries(queries[2:] or queries)}\n\n"
         "## Fuentes normativas o de contraste\n\n"
         f"{sources_block}\n\n"
+        "## Calidad de fuentes\n\n"
+        f"{format_assessments_markdown((official_evidence or all_evidence)[:8])}\n\n"
         "## Criterio de uso docente\n\n"
         "- Validar que la normativa encontrada corresponde a la etapa, comunidad autónoma y fecha aplicable.\n"
         "- Si el centro aporta decreto autonómico o convocatoria concreta, debe prevalecer sobre resultados genéricos.\n"
         "- Las sugerencias curriculares quedan pendientes hasta revisión del profesor."
+    )
+
+
+def build_source_validation_report(
+    scientific_evidence: list[SearchResult],
+    official_evidence: list[SearchResult],
+    all_evidence: list[SearchResult],
+) -> str:
+    return (
+        "## Resumen de validación\n\n"
+        f"- {validation_summary(all_evidence)}\n"
+        f"- Fuentes oficiales detectadas: **{len(official_evidence)}**.\n"
+        f"- Fuentes científicas/no normativas detectadas: **{len(scientific_evidence)}**.\n\n"
+        "## Evaluación fuente a fuente\n\n"
+        f"{format_assessments_markdown(all_evidence[:12])}\n\n"
+        "## Decisión de uso\n\n"
+        "- Confirmado: puede fundamentar una sugerencia, siempre con lectura docente.\n"
+        "- Probable: requiere comprobar pertinencia, fecha y fragmento exacto.\n"
+        "- Requiere verificación: no debe incorporarse sin revisión manual explícita."
+    )
+
+
+def build_change_proposal_report(suggestions: list[Suggestion]) -> str:
+    if not suggestions:
+        suggestions_block = "- No se han generado sugerencias."
+    else:
+        suggestions_block = "\n".join(
+            (
+                f"- **{suggestion.suggestion_type.value}** · confianza {suggestion.confidence_level}: "
+                f"{fragment(suggestion.proposed_change, 220)} "
+                f"Referencia: {suggestion.source_reference or 'requiere verificación'}."
+            )
+            for suggestion in suggestions
+        )
+    return (
+        "## Propuestas revisables\n\n"
+        f"{suggestions_block}\n\n"
+        "## Regla de integración\n\n"
+        "- Estado `pending`: no se integra.\n"
+        "- Estado `rejected`: no se integra.\n"
+        "- Estado `approved`: se integra si el fragmento original encaja.\n"
+        "- Estado `edited`: se integra usando la versión editada por el docente."
+    )
+
+
+def build_traceability_report(
+    sections: list[DocumentSection],
+    evidence: list[SearchResult],
+    queries: list[str],
+    suggestions: list[Suggestion],
+) -> str:
+    return (
+        "## Trazabilidad técnica\n\n"
+        f"- Secciones procesadas: **{len(sections)}**.\n"
+        f"- Consultas preparadas: **{len(queries)}**.\n"
+        f"- Evidencias recuperadas: **{len(evidence)}**.\n"
+        f"- Sugerencias generadas: **{len(suggestions)}**.\n\n"
+        "## Consultas documentadas\n\n"
+        f"{format_queries(queries)}\n\n"
+        "## Garantías aplicadas\n\n"
+        "- Las claves de IA no se guardan en informes ni auditoría.\n"
+        "- Las rutas internas de almacenamiento no forman parte del contenido exportable.\n"
+        "- Las sugerencias conservan fragmento original, propuesta, justificación, fuente y confianza."
     )
 
 
@@ -652,8 +870,7 @@ def fragment(text: str, limit: int = 420) -> str:
 
 
 def is_official_source(url: str) -> bool:
-    host = urlparse(url).netloc.lower()
-    return any(domain in host for domain in OFFICIAL_DOMAINS)
+    return is_official_url(url)
 
 
 def is_available_evidence(result: SearchResult) -> bool:

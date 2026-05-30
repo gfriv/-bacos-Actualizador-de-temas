@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, hash_password
-from app.db.models import AuditLog, Project, ProjectStatus, User, UserRole
+from app.db.models import AuditLog, Project, ProjectStatus, Report, ReportType, User, UserRole
 
 
 def test_tampered_bearer_token_cannot_create_project(client: TestClient) -> None:
@@ -93,3 +93,73 @@ def test_api_key_is_not_stored_in_audit_log(
     assert response.status_code == 200
     serialized_logs = "\n".join(str(item.metadata_json) for item in db_session.scalars(select(AuditLog)))
     assert secret not in serialized_logs
+
+
+def test_report_download_blocks_internal_paths(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    user = db_session.scalar(select(User).where(User.email == "teacher@example.com"))
+    assert user is not None
+    project = Project(
+        owner_id=user.id,
+        title="Tema seguro",
+        area="Biología",
+        educational_level="ESO",
+        legal_framework="Normativa aportada",
+        status=ProjectStatus.reports_generated,
+    )
+    db_session.add(project)
+    db_session.flush()
+    report = Report(
+        project_id=project.id,
+        report_type=ReportType.scientific_update,
+        title="Informe inseguro",
+        content_markdown="## Fuentes\n\nRuta interna C:\\Users\\test\\storage\\uploads\\tema.docx",
+    )
+    db_session.add(report)
+    db_session.commit()
+
+    response = client.get(f"/api/reports/{report.id}/download", headers=auth_headers)
+
+    assert response.status_code == 422
+    assert "puerta de calidad" in response.json()["detail"]
+
+
+def test_legacy_report_download_repairs_missing_footer_without_inventing_sources(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    user = db_session.scalar(select(User).where(User.email == "teacher@example.com"))
+    assert user is not None
+    project = Project(
+        owner_id=user.id,
+        title="Tema legacy",
+        area="Biologia",
+        educational_level="ESO",
+        legal_framework="Normativa aportada",
+        status=ProjectStatus.reports_generated,
+    )
+    db_session.add(project)
+    db_session.flush()
+    report = Report(
+        project_id=project.id,
+        report_type=ReportType.scientific_update,
+        title="Informe antiguo",
+        content_markdown=(
+            "## Informe antiguo\n\n"
+            "Contenido generado antes de la puerta de calidad actual. "
+            "Incluye observaciones docentes amplias, pero no conserva metadatos corporativos ni "
+            "citas trazables porque pertenece a una version anterior del MVP."
+        ),
+    )
+    db_session.add(report)
+    db_session.commit()
+
+    response = client.get(f"/api/reports/{report.id}/download", headers=auth_headers)
+
+    assert response.status_code == 200
+    text = response.content.decode("utf-8")
+    assert "Fuentes y limitaciones" in text
+    assert "No se han inventado fuentes" in text
+    assert "asistencia de IA" in text
+    db_session.refresh(report)
+    assert "Centro de Formaci" in report.content_markdown

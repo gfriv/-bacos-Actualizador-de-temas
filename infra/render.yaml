@@ -39,8 +39,14 @@ services:
         value: false
       - key: ANALYSIS_LLM_ENABLED
         value: false
+      - key: EXTERNAL_AI_PROVIDERS_ENABLED
+        value: false
+      - key: EXTERNAL_AI_DATA_PROCESSING_CONFIRMED
+        value: false
       - key: WEB_SEARCH_PROVIDER
-        value: duckduckgo
+        value: disabled
+      - key: EXTERNAL_WEB_SEARCH_ENABLED
+        value: false
       - key: WEB_SEARCH_MAX_RESULTS
         value: 5
       - key: WEB_SEARCH_TIMEOUT_SECONDS
@@ -82,8 +88,14 @@ services:
         value: false
       - key: ANALYSIS_LLM_ENABLED
         value: false
+      - key: EXTERNAL_AI_PROVIDERS_ENABLED
+        value: false
+      - key: EXTERNAL_AI_DATA_PROCESSING_CONFIRMED
+        value: false
       - key: WEB_SEARCH_PROVIDER
-        value: duckduckgo
+        value: disabled
+      - key: EXTERNAL_WEB_SEARCH_ENABLED
+        value: false
 
   - type: redis
     name: abacos-redis

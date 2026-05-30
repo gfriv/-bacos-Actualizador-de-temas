@@ -41,7 +41,8 @@ También se ha preparado `apps/api` como proyecto FastAPI serverless para Vercel
 - `apps/api/requirements.txt` instala dependencias Python;
 - `STORAGE_BACKEND=database` guarda DOCX/PDF y recursos en la tabla `file_blobs`, evitando depender del disco efímero.
 
-Este modo permite probar un backend público funcional, pero no sustituye al despliegue con worker persistente para producción completa.
+Este modo permite probar un backend publico funcional, pero no sustituye al despliegue con worker persistente para produccion completa.
+Los endpoints `/queue` devuelven `503` si no hay `REDIS_URL` accesible o worker persistente escuchando las colas RQ. En Vercel serverless deben usarse los endpoints sincronos de demo, o conectar el API a un Redis y worker externo.
 
 Despliegue público actual:
 
@@ -133,6 +134,10 @@ CORS_ORIGINS=["https://abacos-academic-update-system.vercel.app"]
 UPLOAD_DIR=/app/storage/uploads
 GENERATED_DIR=/app/storage/generated
 LLM_PROVIDER=mock
+EXTERNAL_AI_PROVIDERS_ENABLED=false
+EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=false
+WEB_SEARCH_PROVIDER=disabled
+EXTERNAL_WEB_SEARCH_ENABLED=false
 DEMO_ACCESS_ENABLED=false
 ```
 
@@ -142,8 +147,18 @@ Frontend:
 NEXT_PUBLIC_API_URL=https://tu-api-publica/api
 ```
 
-## Limitaciones Actuales
+## Verificacion Docker Y CI
 
-- El disco de Render está montado en la API. Si en el futuro los workers procesan documentos en segundo plano, conviene mover documentos a object storage compartido.
-- Ollama local no funciona desde Vercel contra el ordenador del usuario. Para Ollama, el backend debe correr en la misma máquina o red que Ollama.
-- Antes de piloto real con documentos privados hay que revisar RGPD, retención, backups y cifrado.
+En una maquina con Docker Desktop:
+
+```powershell
+.\infra\scripts\verify-docker.ps1
+```
+
+El workflow `.github/workflows/ci.yml` ejecuta ruff, pytest, checks frontend, `alembic upgrade head` sobre SQLite y `docker compose` con healthcheck de API en runners con Docker.
+
+## Limitaciones Operativas
+
+- El disco de Render esta montado en la API. Si API y worker quedan en servicios sin almacenamiento compartido, mueve documentos a object storage.
+- Ollama local no funciona desde Vercel contra el ordenador del usuario. Para Ollama, el backend debe correr en la misma maquina o red que Ollama.
+- Antes de piloto real con documentos privados hay que cerrar RGPD, retencion, backups, cifrado y politica de proveedores externos. El backend bloquea IA externa y busqueda externa por defecto hasta activar los flags correspondientes.

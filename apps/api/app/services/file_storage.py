@@ -52,7 +52,7 @@ def managed_file_response(
     download_name: str,
     media_type: str,
 ) -> Response | FileResponse:
-    safe_download_name = _safe_download_name(download_name)
+    safe_download_name = safe_download_filename(download_name)
     if stored_path.startswith("db://"):
         key = stored_path.removeprefix("db://")
         blob = db.scalar(select(FileBlob).where(FileBlob.storage_key == key))
@@ -73,6 +73,6 @@ def managed_file_response(
     return FileResponse(resolved, media_type=media_type, filename=safe_download_name)
 
 
-def _safe_download_name(download_name: str) -> str:
+def safe_download_filename(download_name: str) -> str:
     safe_name = Path(download_name).name.replace('"', "").replace("\r", "").replace("\n", "")
     return safe_name or "descarga"

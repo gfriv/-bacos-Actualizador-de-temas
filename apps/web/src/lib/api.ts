@@ -53,7 +53,13 @@ export type DocumentSection = {
 export type Report = {
   id: number;
   project_id: number;
-  report_type: "scientific_update" | "curriculum_mapping";
+  report_type:
+    | "initial_diagnosis"
+    | "scientific_update"
+    | "curriculum_mapping"
+    | "source_validation"
+    | "change_proposal"
+    | "technical_traceability";
   title: string;
   content_markdown: string;
   created_at: string;
@@ -170,7 +176,7 @@ export async function registerAndLogin(email: string, password: string, fullName
   try {
     await apiFetch("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password, full_name: fullName, role: "teacher" }),
+      body: JSON.stringify({ email, password, full_name: fullName }),
     });
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("registrado")) {

@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.brand import build_ai_notice, build_artifact_header, build_corporate_footer
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.models import (
@@ -21,6 +22,23 @@ from app.db.models import (
 )
 from app.services.audit import audit
 from app.services.resources import RESOURCE_TITLES
+
+
+def _demo_export(title: str, project_title: str, body: str) -> str:
+    return "\n\n".join(
+        [
+            build_artifact_header(
+                title=title,
+                project_title=project_title,
+                generated_at="2026-05-30 10:00 UTC",
+                provider="mock",
+                model="DemoProvider",
+            ),
+            body,
+            build_ai_notice(),
+            build_corporate_footer(),
+        ]
+    )
 
 
 def get_or_create_demo_user(db: Session) -> User:
@@ -79,12 +97,15 @@ def ensure_demo_projects(db: Session, user: User) -> None:
         suggestions[1].teacher_notes = "No se integra porque requiere normativa más específica."
     consolidated = ConsolidatedDocument(
         project_id=consolidated_project.id,
-        content_markdown=(
-            "# Ecosistemas, energía y sostenibilidad\n\n"
-            "Documento consolidado de demostración con cambios aprobados por el docente.\n\n"
-            "## Cambios integrados\n"
-            "- Actualización científica validada.\n"
-            "- Contextualización curricular revisada por el profesor.\n"
+        content_markdown=_demo_export(
+            "Ecosistemas, energía y sostenibilidad",
+            consolidated_project.title,
+            (
+                "Documento consolidado de demostración con cambios aprobados por el docente.\n\n"
+                "## Cambios integrados\n"
+                "- Actualización científica validada.\n"
+                "- Contextualización curricular revisada por el profesor.\n"
+            ),
         ),
         docx_path=None,
     )
@@ -94,11 +115,14 @@ def ensure_demo_projects(db: Session, user: User) -> None:
             project_id=consolidated_project.id,
             resource_type=ResourceType.esquema_desarrollado,
             title=RESOURCE_TITLES[ResourceType.esquema_desarrollado],
-            content_markdown=(
-                "# Esquema desarrollado\n\n"
-                "1. Concepto de ecosistema.\n"
-                "2. Flujo de energía.\n"
-                "3. Sostenibilidad y aplicación didáctica.\n"
+            content_markdown=_demo_export(
+                "Esquema desarrollado",
+                consolidated_project.title,
+                (
+                    "1. Concepto de ecosistema.\n"
+                    "2. Flujo de energía.\n"
+                    "3. Sostenibilidad y aplicación didáctica.\n"
+                ),
             ),
         )
     )
@@ -186,21 +210,31 @@ def _add_document_flow(db: Session, project: Project, *, filename: str) -> None:
                 project_id=project.id,
                 report_type=ReportType.scientific_update,
                 title="Informe de actualización científica",
-                content_markdown=(
-                    "## Diagnóstico inicial\n\n"
-                    "- Hay conceptos que deben verificarse con bibliografía actual.\n"
-                    "- No se inventan referencias.\n"
-                    "- Las propuestas son localizadas y requieren validación docente.\n"
+                content_markdown=_demo_export(
+                    "Informe de actualización científica",
+                    project.title,
+                    (
+                        "## Diagnóstico inicial\n\n"
+                        "- Hay conceptos que deben verificarse con bibliografía actual.\n"
+                        "- No se inventan referencias.\n"
+                        "- Las propuestas son localizadas y requieren validación docente.\n"
+                        "## Fuentes\n\n- DemoProvider: fuente simulada pendiente de validación."
+                    ),
                 ),
             ),
             Report(
                 project_id=project.id,
                 report_type=ReportType.curriculum_mapping,
                 title="Informe legislativo y curricular",
-                content_markdown=(
-                    "## Contextualización curricular\n\n"
-                    "- El análisis usa la normativa introducida por el profesor.\n"
-                    "- La relación con competencias y saberes debe aprobarla el docente.\n"
+                content_markdown=_demo_export(
+                    "Informe legislativo y curricular",
+                    project.title,
+                    (
+                        "## Contextualización curricular\n\n"
+                        "- El análisis usa la normativa introducida por el profesor.\n"
+                        "- La relación con competencias y saberes debe aprobarla el docente.\n"
+                        "## Fuentes\n\n- Normativa indicada por el profesor: requiere contraste oficial."
+                    ),
                 ),
             ),
             Suggestion(

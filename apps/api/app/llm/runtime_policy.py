@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.llm.schemas import AIProviderConfig, ProviderId
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+EXTERNAL_API_PROVIDERS = {"openai", "gemini", "anthropic"}
 
 
 def is_serverless_runtime() -> bool:
@@ -69,8 +70,31 @@ def assert_provider_runtime_allowed(config: AIProviderConfig) -> None:
         _assert_safe_base_url(config.base_url or settings.ollama_base_url, allow_local=True)
         return
 
+    if config.provider_id in EXTERNAL_API_PROVIDERS:
+        _assert_external_ai_enabled()
+
     if config.base_url:
+        if config.provider_id == "openai_compatible" and _requires_external_ai_gate(config.base_url):
+            _assert_external_ai_enabled()
         _assert_safe_base_url(config.base_url, allow_local=not is_serverless_runtime())
+
+
+def _requires_external_ai_gate(base_url: str) -> bool:
+    parsed = urlparse(base_url)
+    if not parsed.hostname:
+        return True
+    return not _is_local_or_private_host(parsed.hostname)
+
+
+def _assert_external_ai_enabled() -> None:
+    if not settings.external_ai_providers_enabled:
+        raise ValueError(
+            "Los proveedores externos de IA estan bloqueados. Activa EXTERNAL_AI_PROVIDERS_ENABLED=true solo tras revisar RGPD y contratos."
+        )
+    if not settings.external_ai_data_processing_confirmed:
+        raise ValueError(
+            "Falta confirmacion RGPD para IA externa. Activa EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=true cuando exista base legal y contrato de tratamiento."
+        )
 
 
 def _assert_safe_base_url(base_url: str, *, allow_local: bool) -> None:
@@ -101,6 +125,8 @@ def safe_provider_error(exc: Exception) -> str:
         "Endpoint de IA no permitido",
         "endpoints de IA HTTPS públicos",
         "endpoints locales o privados",
+        "proveedores externos de IA estan bloqueados",
+        "confirmacion RGPD para IA externa",
     )
     if any(fragment in message for fragment in safe_messages):
         return message

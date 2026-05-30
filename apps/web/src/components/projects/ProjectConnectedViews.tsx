@@ -666,7 +666,7 @@ function WorkflowBoard({ workspace, stats }: { workspace: WorkspaceData; stats: 
     },
     {
       label: "Informes",
-      detail: `${workspace.reports.length}/2 informes disponibles.`,
+      detail: `${workspace.reports.length} informes disponibles.`,
       href: `/projects/${projectId}/scientific-report`,
       done: workspace.reports.length >= 2,
       icon: FileCheck2,

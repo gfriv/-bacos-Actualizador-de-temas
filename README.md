@@ -104,17 +104,25 @@ El selector de la interfaz lista modelos instalados usando `/api/tags`. La desca
 
 No se piden usuarios ni contraseñas de ChatGPT, Gemini, Claude ni servicios similares. Solo se admiten API keys, variables de entorno o endpoints locales.
 
-## Búsqueda Actualizada Para Informes
+## Busqueda Actualizada Para Informes
 
-El análisis incorpora una capa de búsqueda web antes de crear informes y sugerencias. Las fuentes localizadas se guardan en `source_reference` para revisión docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un endpoint compatible con OpenAI, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM está desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
+El analisis incorpora una capa opcional de busqueda web antes de crear informes y sugerencias. Por privacidad, queda desactivada por defecto. Las fuentes localizadas se guardan en `source_reference` para revision docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un proveedor permitido, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM esta desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
 
-Modo local sin clave:
+Modo seguro por defecto:
 
 ```env
-WEB_SEARCH_PROVIDER=duckduckgo
+WEB_SEARCH_PROVIDER=disabled
+EXTERNAL_WEB_SEARCH_ENABLED=false
 WEB_SEARCH_MAX_RESULTS=5
 WEB_SEARCH_TIMEOUT_SECONDS=6
 ANALYSIS_LLM_ENABLED=false
+```
+
+Modo local con busqueda web sin clave, solo si el operador acepta enviar consultas a un buscador externo:
+
+```env
+WEB_SEARCH_PROVIDER=duckduckgo
+EXTERNAL_WEB_SEARCH_ENABLED=true
 ```
 
 Proveedores API preparados:
@@ -133,11 +141,14 @@ Para tests o entornos sin internet:
 
 ```env
 WEB_SEARCH_PROVIDER=disabled
+EXTERNAL_WEB_SEARCH_ENABLED=false
 ```
 
 Las sugerencias curriculares priorizan fuentes oficiales como `boe.es`, `doe.juntaex.es`, `educarex.es`, `educagob.educacionfpydeportes.gob.es`, `educacionfpydeportes.gob.es` y dominios europeos oficiales. Para oposiciones, el sistema añade como contraste el reglamento estatal de ingreso docente y, según el nivel, fuentes BOE de Infantil, Primaria, ESO, Bachillerato o Formación Profesional.
 
 Si el profesor indica Extremadura, se añaden fuentes autonómicas oficiales: Ley 4/2011 de Educación de Extremadura, currículos LOMLOE consolidados de Infantil, Primaria, ESO y Bachillerato, normativa de evaluación y referencias de FP cuando proceda. Si no hay fuente oficial suficiente, la sugerencia queda con confianza baja y requiere verificación manual.
+
+El pipeline genera seis informes diferenciados: diagnóstico inicial, actualización científica, mapeo curricular, validación de fuentes, propuestas de cambio y trazabilidad técnica. Antes de descargar informes, consolidado o recursos, `ReportQualityGate` bloquea claves, rutas internas, placeholders y contenido sin aviso de asistencia de IA.
 
 ## Docker
 
@@ -156,6 +167,14 @@ Servicios:
 
 El contenedor de API ejecuta `alembic upgrade head` al arrancar. El worker usa el mismo entrypoint y después lanza RQ sobre las colas documentales. Docker no debe recibir documentos reales en el contexto de build; `.dockerignore` excluye `storage`, `.venv`, `node_modules` y logs.
 
+Verificacion completa en una maquina con Docker Desktop:
+
+```powershell
+.\infra\scripts\verify-docker.ps1
+```
+
+El repositorio incluye tambien `.github/workflows/ci.yml`, que valida backend, frontend, migraciones Alembic y `docker compose` en runners con Docker. En esta maquina local el script fallara mientras Docker no este en `PATH`; ese fallo es de entorno, no del compose.
+
 ## Migraciones
 
 ```bash
@@ -163,6 +182,21 @@ cd Abacos/apps/api
 python -m uv run alembic revision --autogenerate -m "describe change"
 python -m uv run alembic upgrade head
 ```
+
+La historia Alembic queda linealizada con una revision de merge `0003_merge_report_types_and_file_blobs`; `alembic heads` debe devolver una sola cabeza.
+
+## Workers RQ
+
+El backend conserva endpoints sincronos para demo y anade endpoints asincronos para un backend con Redis/worker persistente:
+
+```text
+POST /api/projects/{project_id}/analysis/research/queue
+POST /api/projects/{project_id}/consolidate/queue
+POST /api/projects/{project_id}/resources/queue
+GET  /api/analysis-runs/{analysis_run_id}
+```
+
+Por seguridad, las rutas `/queue` no aceptan configuracion BYOK por `X-Abacos-AI-Config`, porque una clave API podria quedar persistida en Redis. Los jobs usan el proveedor configurado en variables de entorno del backend.
 
 ## Crear Usuario Inicial
 
@@ -195,9 +229,11 @@ LLM_PROVIDER=openai_compatible
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=...
 LLM_MODEL=...
+EXTERNAL_AI_PROVIDERS_ENABLED=true
+EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=true
 ```
 
-También puede apuntar a vLLM, Ollama o LM Studio si exponen `/chat/completions`.
+Tambien puede apuntar a vLLM, Ollama o LM Studio si exponen `/chat/completions`. Si el endpoint es publico o de un proveedor externo, el backend exige activar los dos flags anteriores para dejar constancia operativa de la revision RGPD/contrato de tratamiento. Los endpoints locales o privados solo se permiten cuando el backend se ejecuta en entorno local compatible; Vercel no puede llamar al `localhost` del usuario.
 
 ## Vercel
 
@@ -233,7 +269,7 @@ Para producción completa con colas persistentes se recomienda desplegar tambié
 
 Hay un blueprint inicial en `render.yaml` para desplegar API, worker, PostgreSQL y Redis en Render. Antes de usarlo con documentos reales, revisa almacenamiento persistente, object storage y RGPD.
 
-La guía operativa está en `docs/DEPLOYMENT.md`. Incluye el script `infra/scripts/connect-vercel-api-url.ps1` para configurar `NEXT_PUBLIC_API_URL` en Vercel cuando exista una URL pública del backend.
+La guía operativa está en `docs/DEPLOYMENT.md`. Incluye el script `infra/scripts/connect-vercel-api-url.ps1` para configurar `NEXT_PUBLIC_API_URL` en Vercel cuando exista una URL pública del backend. La puerta operativa para RGPD/IA externa está en `docs/RGPD_PILOT.md`.
 
 ## Descargas Seguras
 
@@ -241,11 +277,12 @@ La API no expone rutas internas como `file_path` o `docx_path` en sus respuestas
 
 ```text
 GET /api/documents/{document_id}/download
+GET /api/reports/{report_id}/download
 GET /api/projects/{project_id}/consolidated/download
 GET /api/resources/{resource_id}/download
 ```
 
-Cada endpoint valida permisos del proyecto y comprueba que el archivo esté dentro del directorio gestionado configurado.
+Cada endpoint valida permisos del proyecto y comprueba que el archivo esté dentro del directorio gestionado configurado. Los informes, recursos y consolidados también pasan por `ReportQualityGate` para evitar filtraciones de rutas internas o claves.
 
 ## Tests Y Calidad
 
@@ -268,6 +305,6 @@ python -m uv run pytest
 
 ## Estado Actual
 
-La base incluye arquitectura, dependencias, diseño visual Ábacos, rutas, modelos, ModelRouter, workers, docs y tests mínimos. El frontend conecta con la API para login local/demo, creación de proyecto, subida DOCX/PDF, análisis con búsqueda trazable, revisión de sugerencias, consolidación y recursos.
+La base incluye arquitectura, dependencias, diseño visual Ábacos, rutas, modelos, ModelRouter, workers RQ, docs y tests mínimos. El frontend conecta con la API para login local/demo, creación de proyecto, subida DOCX/PDF, análisis con búsqueda trazable opcional, revisión de sugerencias, consolidación y recursos.
 
-Pendiente para piloto real: colas asíncronas completas, despliegue backend gestionado, RGPD/contratos de tratamiento, OCR para PDFs escaneados y evaluación pedagógica con docentes.
+Pendiente para piloto real: activar un backend gestionado con el blueprint `render.yaml` o servicio equivalente, configurar almacenamiento documental compartido/object storage si API y worker no comparten disco, cerrar revisión RGPD formal antes de documentos reales, OCR para PDFs escaneados y evaluación pedagógica con docentes.

@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,8 @@ from app.api.deps import get_ai_provider_config, get_current_user
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models import (
+    AnalysisRun,
+    AnalysisRunStatus,
     ConsolidatedDocument,
     Document,
     DocumentSection,
@@ -45,6 +47,7 @@ from app.llm.schemas import (
     ProviderValidationResult,
 )
 from app.schemas import (
+    AnalysisRunRead,
     ConsolidatedDocumentRead,
     DocumentRead,
     DocumentSectionRead,
@@ -66,13 +69,17 @@ from app.schemas import (
 from app.services.audit import audit
 from app.services.consolidation import build_consolidated_markdown
 from app.services.demo_seed import get_or_create_demo_user
+from app.services.export_compatibility import ensure_exportable_markdown
 from app.services.file_storage import (
     managed_file_response,
+    safe_download_filename,
     save_managed_file,
     uses_database_storage,
 )
-from app.services.research_analysis import build_research_analysis
-from app.services.resources import RESOURCE_TITLES
+from app.services.jobs import QueueUnavailableError, enqueue_rq_job
+from app.services.report_quality_gate import assert_export_quality
+from app.services.research_analysis import build_research_analysis, describe_ai_provider
+from app.services.resources import RESOURCE_TITLES, decorate_resource_markdown
 
 router = APIRouter()
 
@@ -168,11 +175,11 @@ async def pull_ollama_model(
 ) -> dict[str, str]:
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
     if not payload.confirm:
-        raise HTTPException(status_code=400, detail="Confirma explÃ­citamente la descarga del modelo.")
+        raise HTTPException(status_code=400, detail="Confirma explícitamente la descarga del modelo.")
     if not settings.ollama_pull_enabled:
         raise HTTPException(
             status_code=403,
-            detail="La descarga automÃ¡tica de modelos Ollama estÃ¡ deshabilitada. Activa OLLAMA_PULL_ENABLED=true en entorno local.",
+            detail="La descarga automática de modelos Ollama está deshabilitada. Activa OLLAMA_PULL_ENABLED=true en entorno local.",
         )
     try:
         assert_provider_runtime_allowed(
@@ -348,7 +355,7 @@ async def upload_document(
             target.unlink(missing_ok=True)
         raise HTTPException(
             status_code=422,
-            detail="El archivo no parece un DOCX/PDF vÃ¡lido o estÃ¡ daÃ±ado.",
+            detail="El archivo no parece un DOCX/PDF válido o está dañado.",
         ) from exc
 
     file_path = (
@@ -413,6 +420,123 @@ async def run_legacy_mock_analysis(
     return await _run_research_analysis(project_id, db, current_user, ai_config)
 
 
+@router.post(
+    "/projects/{project_id}/analysis/research/queue",
+    response_model=AnalysisRunRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def queue_research_analysis(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ai_config: AIProviderConfig | None = Depends(get_ai_provider_config),
+) -> AnalysisRun:
+    project = _get_project_for_user(db, project_id, current_user)
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher})
+    if ai_config is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Los jobs asincronos no aceptan configuracion BYOK por cabecera para evitar que "
+                "claves API queden persistidas en Redis. Configura el proveedor en variables de entorno."
+            ),
+        )
+    sections_count = db.scalar(
+        select(DocumentSection.id).where(DocumentSection.project_id == project.id).limit(1)
+    )
+    if sections_count is None:
+        raise HTTPException(status_code=400, detail="Sube un documento antes de encolar el analisis.")
+
+    return _enqueue_analysis_run(
+        db,
+        current_user,
+        project,
+        run_type="research",
+        queue_name="research",
+        function_path="workers.tasks.research_worker",
+        worker_args=(project.id, current_user.id),
+        queued_action="research_analysis_queued",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/consolidate/queue",
+    response_model=AnalysisRunRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def queue_consolidation(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AnalysisRun:
+    project = _get_project_for_user(db, project_id, current_user)
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher})
+    suggestions = list(db.scalars(select(Suggestion).where(Suggestion.project_id == project.id)))
+    approved_count = sum(
+        1 for suggestion in suggestions if suggestion.status in {SuggestionStatus.approved, SuggestionStatus.edited}
+    )
+    if approved_count == 0:
+        raise HTTPException(status_code=400, detail="No hay sugerencias aprobadas o editadas para consolidar.")
+    return _enqueue_analysis_run(
+        db,
+        current_user,
+        project,
+        run_type="consolidation",
+        queue_name="consolidation",
+        function_path="workers.tasks.consolidation_worker",
+        worker_args=(project.id, current_user.id),
+        queued_action="consolidation_queued",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/resources/queue",
+    response_model=AnalysisRunRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def queue_resource_generation(
+    project_id: int,
+    payload: ResourceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AnalysisRun:
+    project = _get_project_for_user(db, project_id, current_user)
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher})
+    consolidated = db.scalar(
+        select(ConsolidatedDocument)
+        .where(ConsolidatedDocument.project_id == project.id)
+        .order_by(ConsolidatedDocument.created_at.desc())
+    )
+    if consolidated is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Genera el documento consolidado antes de crear recursos didácticos.",
+        )
+    return _enqueue_analysis_run(
+        db,
+        current_user,
+        project,
+        run_type=f"resource_generation:{payload.resource_type.value}",
+        queue_name="resource_generation",
+        function_path="workers.tasks.resource_generation_worker",
+        worker_args=(project.id, payload.resource_type.value, current_user.id),
+        queued_action="resource_generation_queued",
+    )
+
+
+@router.get("/analysis-runs/{analysis_run_id}", response_model=AnalysisRunRead)
+def get_analysis_run(
+    analysis_run_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AnalysisRun:
+    analysis_run = db.get(AnalysisRun, analysis_run_id)
+    if analysis_run is None:
+        raise HTTPException(status_code=404, detail="Ejecucion de analisis no encontrada.")
+    _get_project_for_user(db, analysis_run.project_id, current_user)
+    return analysis_run
+
+
 async def _run_research_analysis(
     project_id: int,
     db: Session,
@@ -432,6 +556,16 @@ async def _run_research_analysis(
         raise HTTPException(status_code=400, detail="Sube un documento antes de generar informes.")
 
     analysis = await build_research_analysis(project, sections, provider_config=ai_config)
+    for report in analysis.reports:
+        try:
+            assert_export_quality(
+                report.content_markdown,
+                artifact_type=report.report_type.value,
+                require_sources=report.report_type.value
+                in {"scientific_update", "curriculum_mapping", "source_validation"},
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.add_all([*analysis.reports, *analysis.suggestions])
     project.status = ProjectStatus.under_review
     audit(
@@ -523,6 +657,45 @@ def list_reports(
     return list(db.scalars(select(Report).where(Report.project_id == project.id).order_by(Report.created_at.asc())))
 
 
+@router.get("/reports/{report_id}/download")
+def download_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Informe no encontrado.")
+    project = _get_project_for_user(db, report.project_id, current_user)
+    try:
+        content, repaired = ensure_exportable_markdown(
+            report.content_markdown,
+            artifact_type=report.report_type.value,
+            title=report.title,
+            project_title=project.title,
+            require_sources=report.report_type.value
+            in {"scientific_update", "curriculum_mapping", "source_validation"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if repaired:
+        report.content_markdown = content
+        audit(
+            db,
+            "legacy_report_export_repaired",
+            user_id=current_user.id,
+            project_id=report.project_id,
+            report_id=report.id,
+        )
+        db.commit()
+    filename = safe_download_filename(f"informe-{report.report_type.value}-{report.id}.md")
+    return Response(
+        content=content.encode("utf-8"),
+        media_type=MARKDOWN_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/projects/{project_id}/consolidate", response_model=ConsolidatedDocumentRead)
 def consolidate_project(
     project_id: int,
@@ -539,7 +712,11 @@ def consolidate_project(
     if approved_count == 0:
         raise HTTPException(status_code=400, detail="No hay sugerencias aprobadas o editadas para consolidar.")
 
-    markdown = build_consolidated_markdown(sections, suggestions)
+    markdown = build_consolidated_markdown(sections, suggestions, project_title=project.title, provider="system")
+    try:
+        assert_export_quality(markdown, artifact_type="consolidated_document")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     docx_filename = f"project-{project.id}-consolidated.docx"
     if uses_database_storage():
         with TemporaryDirectory() as tmp_dir:
@@ -555,6 +732,7 @@ def consolidate_project(
             )
     else:
         generated_dir = Path(settings.generated_dir).resolve()
+        generated_dir.mkdir(parents=True, exist_ok=True)
         docx_path = generated_dir / docx_filename
         write_markdown_docx(markdown, docx_path)
         stored_docx_path = str(docx_path)
@@ -598,6 +776,44 @@ def download_consolidated_document(
     )
     if consolidated is None or consolidated.docx_path is None:
         raise HTTPException(status_code=404, detail="Documento consolidado no encontrado.")
+    try:
+        content, repaired = ensure_exportable_markdown(
+            consolidated.content_markdown,
+            artifact_type="consolidated_document",
+            title="Documento consolidado",
+            project_title=project.title,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if repaired:
+        docx_filename = f"project-{project.id}-consolidated-repaired-{uuid4().hex}.docx"
+        if uses_database_storage():
+            with TemporaryDirectory() as tmp_dir:
+                docx_path = Path(tmp_dir) / docx_filename
+                write_markdown_docx(content, docx_path)
+                consolidated.docx_path = save_managed_file(
+                    db,
+                    docx_path.read_bytes(),
+                    root_dir=settings.generated_dir,
+                    filename=docx_filename,
+                    content_type=DOCX_MEDIA_TYPE,
+                    namespace="generated",
+                )
+        else:
+            generated_dir = Path(settings.generated_dir).resolve()
+            generated_dir.mkdir(parents=True, exist_ok=True)
+            docx_path = generated_dir / docx_filename
+            write_markdown_docx(content, docx_path)
+            consolidated.docx_path = str(docx_path)
+        consolidated.content_markdown = content
+        audit(
+            db,
+            "legacy_consolidated_export_repaired",
+            user_id=current_user.id,
+            project_id=project.id,
+            consolidated_document_id=consolidated.id,
+        )
+        db.commit()
     return managed_file_response(
         db,
         consolidated.docx_path,
@@ -625,14 +841,29 @@ async def generate_resource(
     if consolidated is None:
         raise HTTPException(
             status_code=400,
-            detail="Genera el documento consolidado antes de crear recursos didácticos.",
+            detail="Genera el documento consolidado antes de crear recursos didacticos.",
         )
     document_text = consolidated.content_markdown
-    content = await ModelRouter(provider_config=ai_config).generate_document_resource(document_text, payload.resource_type.value)
+    raw_content = await ModelRouter(provider_config=ai_config).generate_document_resource(
+        document_text, payload.resource_type.value
+    )
+    provider_name, model_name = describe_ai_provider(ai_config)
+    title = RESOURCE_TITLES[payload.resource_type]
+    content = decorate_resource_markdown(
+        content=raw_content,
+        title=title,
+        project_title=project.title,
+        provider=provider_name,
+        model=model_name,
+    )
+    try:
+        assert_export_quality(content, artifact_type=payload.resource_type.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     resource = GeneratedResource(
         project_id=project.id,
         resource_type=payload.resource_type,
-        title=RESOURCE_TITLES[payload.resource_type],
+        title=title,
         content_markdown=content,
     )
     db.add(resource)
@@ -678,9 +909,37 @@ def download_resource(
     resource = db.get(GeneratedResource, resource_id)
     if resource is None:
         raise HTTPException(status_code=404, detail="Recurso no encontrado.")
-    _get_project_for_user(db, resource.project_id, current_user)
+    project = _get_project_for_user(db, resource.project_id, current_user)
     if resource.file_path is None:
         raise HTTPException(status_code=404, detail="El recurso no tiene archivo descargable.")
+    try:
+        content, repaired = ensure_exportable_markdown(
+            resource.content_markdown,
+            artifact_type=resource.resource_type.value,
+            title=resource.title,
+            project_title=project.title,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if repaired:
+        resource_filename = f"project-{project.id}-resource-{resource.id}-repaired-{uuid4().hex}.md"
+        resource.file_path = save_managed_file(
+            db,
+            content.encode("utf-8"),
+            root_dir=settings.generated_dir,
+            filename=resource_filename,
+            content_type=MARKDOWN_MEDIA_TYPE,
+            namespace="generated",
+        )
+        resource.content_markdown = content
+        audit(
+            db,
+            "legacy_resource_export_repaired",
+            user_id=current_user.id,
+            project_id=project.id,
+            resource_id=resource.id,
+        )
+        db.commit()
     return managed_file_response(
         db,
         resource.file_path,
@@ -690,25 +949,57 @@ def download_resource(
     )
 
 
-def _managed_file_response(
-    stored_path: str,
-    allowed_root: str,
-    download_name: str,
-    media_type: str,
-) -> FileResponse:
-    root = Path(allowed_root).resolve()
-    path = Path(stored_path)
-    resolved = path.resolve() if not path.is_absolute() else path.resolve()
-    if not resolved.is_relative_to(root):
-        raise HTTPException(status_code=403, detail="Archivo fuera del almacÃ©n permitido.")
-    if not resolved.is_file():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado.")
-    return FileResponse(resolved, media_type=media_type, filename=download_name)
+def _enqueue_analysis_run(
+    db: Session,
+    current_user: User,
+    project: Project,
+    *,
+    run_type: str,
+    queue_name: str,
+    function_path: str,
+    worker_args: tuple[object, ...],
+    queued_action: str,
+) -> AnalysisRun:
+    analysis_run = AnalysisRun(
+        project_id=project.id,
+        run_type=run_type,
+        status=AnalysisRunStatus.queued,
+        model_provider=settings.llm_provider,
+        model_name=settings.llm_model or None,
+    )
+    db.add(analysis_run)
+    project.status = ProjectStatus.processing
+    db.flush()
+    audit(
+        db,
+        queued_action,
+        user_id=current_user.id,
+        project_id=project.id,
+        analysis_run_id=analysis_run.id,
+    )
+    db.commit()
+    db.refresh(analysis_run)
+    try:
+        enqueue_rq_job(queue_name, function_path, analysis_run.id, *worker_args)
+    except QueueUnavailableError as exc:
+        analysis_run.status = AnalysisRunStatus.failed
+        analysis_run.error_message = str(exc)
+        project.status = ProjectStatus.error
+        audit(
+            db,
+            f"{queued_action}_failed",
+            user_id=current_user.id,
+            project_id=project.id,
+            analysis_run_id=analysis_run.id,
+        )
+        db.commit()
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return analysis_run
 
 
 def _require_roles(user: User, allowed_roles: set[UserRole]) -> None:
     if user.role not in allowed_roles:
-        raise HTTPException(status_code=403, detail="Tu rol no permite realizar esta acciÃ³n.")
+        raise HTTPException(status_code=403, detail="Tu rol no permite realizar esta acción.")
 
 
 def _get_project_for_user(db: Session, project_id: int, user: User) -> Project:

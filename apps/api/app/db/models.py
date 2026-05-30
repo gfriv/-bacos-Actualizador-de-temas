@@ -47,8 +47,12 @@ class SuggestionType(str, enum.Enum):
 
 
 class ReportType(str, enum.Enum):
+    initial_diagnosis = "initial_diagnosis"
     scientific_update = "scientific_update"
     curriculum_mapping = "curriculum_mapping"
+    source_validation = "source_validation"
+    change_proposal = "change_proposal"
+    technical_traceability = "technical_traceability"
 
 
 class ResourceType(str, enum.Enum):

@@ -106,13 +106,17 @@ def test_research_analysis_creates_reports_and_suggestions(
 
     response = client.post(f"/api/projects/{project_id}/analysis/research", headers=auth_headers)
     assert response.status_code == 200
-    assert len(response.json()["reports"]) == 2
+    assert len(response.json()["reports"]) == 6
     assert len(response.json()["suggestions"]) == 2
 
     reports = client.get(f"/api/projects/{project_id}/reports", headers=auth_headers)
     suggestions = client.get(f"/api/projects/{project_id}/suggestions", headers=auth_headers)
-    assert len(reports.json()) == 2
+    assert len(reports.json()) == 6
     assert len(suggestions.json()) == 2
+    source_report = next(report for report in reports.json() if report["report_type"] == "source_validation")
+    report_download = client.get(f"/api/reports/{source_report['id']}/download", headers=auth_headers)
+    assert report_download.status_code == 200
+    assert b"Centro de Formaci" in report_download.content
 
 
 def test_consolidation_rejects_pending_only(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -188,6 +192,8 @@ def test_consolidation_uses_approved_suggestions_and_generates_resource(
     assert consolidated_download.status_code == 200
     assert consolidated_download.content.startswith(b"PK")
     assert "Documento consolidado" in consolidated.json()["content_markdown"]
+    assert "Centro de Formación y Estudios Ábacos" in consolidated.json()["content_markdown"]
+    assert "asistencia de IA" in consolidated.json()["content_markdown"]
 
     resource = client.post(
         f"/api/projects/{project_id}/resources",
@@ -200,6 +206,8 @@ def test_consolidation_uses_approved_suggestions_and_generates_resource(
     assert resource_download.status_code == 200
     assert b"Recurso" in resource_download.content
     assert "Recurso didáctico simulado" in resource.json()["content_markdown"]
+    assert "Centro de Formación y Estudios Ábacos" in resource.json()["content_markdown"]
+    assert "asistencia de IA" in resource.json()["content_markdown"]
 
 
 def test_resource_generation_requires_consolidated_document(

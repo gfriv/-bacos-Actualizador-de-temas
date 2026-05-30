@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.db.models import (
+    AnalysisRunStatus,
     ProjectStatus,
     ReportType,
     ResourceType,
@@ -154,6 +155,20 @@ class GeneratedResourceRead(BaseModel):
     title: str
     content_markdown: str
     created_at: datetime
+
+
+class AnalysisRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    run_type: str
+    status: AnalysisRunStatus
+    model_provider: str | None
+    model_name: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    error_message: str | None
 
 
 class ResearchAnalysisResponse(BaseModel):

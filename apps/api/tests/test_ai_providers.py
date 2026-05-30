@@ -138,3 +138,26 @@ def test_remote_runtime_blocks_private_openai_compatible_endpoint_and_redacts_ke
     assert response.status_code == 400
     assert "HTTPS públicos" in response.json()["detail"]
     assert secret not in response.text
+
+
+def test_external_ai_provider_is_blocked_until_rgpd_gate_is_enabled(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    secret = "sk-test-secret-should-not-leak"
+
+    response = client.post(
+        "/api/ai/providers/models",
+        headers=auth_headers,
+        json={
+            "config": {
+                "provider_id": "openai",
+                "mode": "api",
+                "api_key": secret,
+                "model": "gpt-4o-mini",
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert "proveedores externos de IA" in response.json()["detail"]
+    assert secret not in response.text

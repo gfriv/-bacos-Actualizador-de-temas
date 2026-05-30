@@ -43,6 +43,18 @@ The logo is integrated as brand assets in `apps/web/public/brand`:
 
 Use `AbacosLogo` instead of embedding image tags directly, so sizing and accessibility remain consistent.
 
+## Corporate Footer
+
+Shared brand data lives in `apps/web/src/lib/brand.ts` and `apps/api/app/core/brand.py`. Current public-contact data, verified against the Ábacos contact page, is:
+
+- Centro de Formación y Estudios Ábacos.
+- Avda. Virgen de Guadalupe, 33, 4ª planta. 10001 Cáceres.
+- 927 24 50 50 · 648 91 84 11.
+- consultasabacos@gmail.com.
+- Lunes a viernes, de 17:00 a 21:00.
+
+Use this data in footers, export metadata and support surfaces. Do not hardcode duplicates in random components.
+
 ## Tone
 
 Spanish from Spain. Professional, academic and clear. Interface text should address teachers and reinforce that human validation is mandatory.

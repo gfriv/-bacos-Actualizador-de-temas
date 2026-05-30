@@ -39,7 +39,18 @@ La app permite elegir proveedor al inicio de cada sesión. El usuario puede usar
 
 La configuración del usuario no se guarda en base de datos. El frontend la conserva en `sessionStorage` y la envía como `X-Abacos-AI-Config` solo a operaciones del pipeline. El backend valida esa cabecera con `AIProviderConfig` y construye un `ModelRouter(provider_config=...)`.
 
+Los endpoints asincronos `/queue` no aceptan `X-Abacos-AI-Config`; usan solo variables de entorno del backend para evitar que una API key BYOK quede serializada en Redis.
+
 Las operaciones que llaman realmente a un proveedor (`validate`, `models`, `generate`, `pull`) requieren autenticación. Solo el catálogo de proveedores es público. En Vercel u otro runtime serverless remoto, el backend bloquea Ollama y endpoints `localhost`, IP privadas o no HTTPS para evitar SSRF y para no intentar acceder al Ollama local del navegador del usuario.
+
+Los proveedores externos (`openai`, `gemini`, `anthropic` y endpoints OpenAI-compatible publicos) estan bloqueados por defecto. Para activarlos en un backend que vaya a procesar documentos reales:
+
+```env
+EXTERNAL_AI_PROVIDERS_ENABLED=true
+EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=true
+```
+
+Estos flags no son una validacion legal automatica; solo impiden activaciones accidentales antes de revisar RGPD, contrato de tratamiento, region, retencion y politica del proveedor.
 
 Los endpoints de catálogo y validación son:
 
@@ -112,7 +123,8 @@ El `ModelRouter` no navega por internet por sí mismo. La app añade una capa in
 Variables:
 
 ```env
-WEB_SEARCH_PROVIDER=duckduckgo
+WEB_SEARCH_PROVIDER=disabled
+EXTERNAL_WEB_SEARCH_ENABLED=false
 WEB_SEARCH_MAX_RESULTS=5
 WEB_SEARCH_TIMEOUT_SECONDS=6
 ANALYSIS_LLM_ENABLED=false
@@ -123,10 +135,16 @@ BRAVE_SEARCH_API_KEY=
 Proveedores:
 
 - `disabled`: no busca; útil para tests.
-- `duckduckgo`: proveedor sin clave para desarrollo local.
+- `duckduckgo`: proveedor sin clave para desarrollo local. Requiere `EXTERNAL_WEB_SEARCH_ENABLED=true`.
 - `tavily`: búsqueda mediante API key de backend.
 - `brave`: Brave Search API mediante API key de backend.
 
 Las fuentes recuperadas se persisten en `Suggestion.source_reference`. En normativa, el servicio prioriza dominios oficiales como BOE, Ministerio de Educación, Educagob y EUR-Lex/Europa. La app no debe inventar legislación ni artículos: si no encuentra base suficiente, marca la sugerencia como baja confianza y pendiente de verificación docente.
 
 `ANALYSIS_LLM_ENABLED=false` mantiene el análisis rápido y basado en búsqueda/API. Al activarlo, el ModelRouter intentará sintetizar las sugerencias con el LLM configurado usando únicamente las fuentes recuperadas como contexto. Si el proveedor no responde o devuelve JSON inválido, el backend vuelve al fallback trazable sin bloquear la revisión docente.
+
+## Política De Fuentes Y ReportQualityGate
+
+`app/research/source_policy.py` clasifica las evidencias como oficiales, académicas, editoriales, genéricas o no disponibles. Las fuentes oficiales se consideran confirmadas para orientar una propuesta, pero la decisión final sigue siendo docente.
+
+Antes de guardar o descargar informes y recursos, `app/services/report_quality_gate.py` comprueba que el contenido no incluya claves, rutas internas, placeholders ni salidas sin aviso de asistencia de IA. Los informes científico, curricular y de validación deben incluir fuentes o referencias.

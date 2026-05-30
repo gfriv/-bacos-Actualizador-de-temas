@@ -24,7 +24,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_pull_enabled: bool = False
     analysis_llm_enabled: bool = False
-    web_search_provider: str = "duckduckgo"
+    external_ai_providers_enabled: bool = False
+    external_ai_data_processing_confirmed: bool = False
+    web_search_provider: str = "disabled"
+    external_web_search_enabled: bool = False
     web_search_max_results: int = 5
     web_search_timeout_seconds: float = 6.0
     tavily_api_key: str = ""

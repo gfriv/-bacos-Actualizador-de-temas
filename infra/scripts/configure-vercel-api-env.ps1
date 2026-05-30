@@ -40,7 +40,10 @@ foreach ($target in $targets) {
   Set-VercelEnv -Key "LLM_PROVIDER" -Value "mock" -Target $target
   Set-VercelEnv -Key "OLLAMA_PULL_ENABLED" -Value "false" -Target $target
   Set-VercelEnv -Key "ANALYSIS_LLM_ENABLED" -Value "false" -Target $target
-  Set-VercelEnv -Key "WEB_SEARCH_PROVIDER" -Value "duckduckgo" -Target $target
+  Set-VercelEnv -Key "EXTERNAL_AI_PROVIDERS_ENABLED" -Value "false" -Target $target
+  Set-VercelEnv -Key "EXTERNAL_AI_DATA_PROCESSING_CONFIRMED" -Value "false" -Target $target
+  Set-VercelEnv -Key "WEB_SEARCH_PROVIDER" -Value "disabled" -Target $target
+  Set-VercelEnv -Key "EXTERNAL_WEB_SEARCH_ENABLED" -Value "false" -Target $target
   Set-VercelEnv -Key "RUN_MIGRATIONS_ON_STARTUP" -Value "true" -Target $target
   Set-VercelEnv -Key "DEMO_ACCESS_ENABLED" -Value "false" -Target $target
 }

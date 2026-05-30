@@ -11,13 +11,19 @@
 - AuditLog model for key actions.
 - LLM keys read only from backend environment variables.
 - Search API keys read only from backend environment variables.
+- External LLM providers are blocked by default through `EXTERNAL_AI_PROVIDERS_ENABLED=false` and `EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=false`.
+- External web search is blocked by default through `EXTERNAL_WEB_SEARCH_ENABLED=false`.
 - Optional user-supplied AI keys are kept in browser `sessionStorage` and sent only as an ephemeral `X-Abacos-AI-Config` header for pipeline calls.
+- Queued worker endpoints reject `X-Abacos-AI-Config` so API keys cannot be serialized into Redis jobs.
 - AI provider validation, model listing, generation and Ollama pull endpoints require authenticated backend sessions. The public catalog only returns provider metadata.
 - Remote/serverless runtimes block Ollama and private/local LLM endpoints to avoid SSRF and false attempts to reach the user's local machine from Vercel.
 - Optional demo access seeded by backend only, controlled through `DEMO_ACCESS_ENABLED`.
 - Public registration always creates `teacher`; `admin` is created only by server-side script.
 - Public response schemas do not expose internal storage paths.
 - Authenticated download endpoints validate project access and path containment before serving files.
+- Report, consolidated-document and resource downloads pass through `ReportQualityGate` before export.
+- Legacy exports missing only formal metadata are repaired with an explicit compatibility note; exports containing secrets, internal paths or placeholders remain blocked.
+- `ReportQualityGate` blocks likely API keys, bearer tokens, internal storage paths, unresolved placeholders and missing required traceability.
 - Invalid or damaged DOCX/PDF uploads return `422` without leaking filesystem paths.
 - Generic AI generation endpoints require authentication so the API cannot be abused as a public LLM proxy.
 - Provider error responses are sanitized so API keys are not reflected in HTTP responses, UI toasts or logs.
@@ -54,9 +60,33 @@ Before any production deployment:
 
 ## Documents and External Providers
 
-Documents must not be sent to external providers except through the configured `ModelRouter`. If production uses external LLM providers, Ábacos must inform the client and review GDPR/RGPD obligations, data processing agreements and retention policies.
+Documents must not be sent to external providers except through the configured `ModelRouter`. Production cannot use external LLM providers unless both flags are enabled:
 
-Search providers may receive query strings derived from project area, level, legal framework and detected concepts. Before production, review whether those queries can contain confidential client information and configure redaction or a contractual provider if needed.
+```env
+EXTERNAL_AI_PROVIDERS_ENABLED=true
+EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=true
+```
+
+Those flags are an operational gate, not a legal substitute. Before enabling them, Ábacos must inform the client and review GDPR/RGPD obligations, data processing agreements, retention policy and provider region/model settings.
+
+Search providers may receive query strings derived from project area, level, legal framework and detected concepts. External search stays disabled unless:
+
+```env
+EXTERNAL_WEB_SEARCH_ENABLED=true
+```
+
+Before enabling it in production, review whether those queries can contain confidential client information and configure redaction or a contractual provider if needed.
+
+## Export Quality Gate
+
+The backend checks generated Markdown before allowing report/resource downloads or DOCX consolidation. This is not a substitute for teacher review; it prevents obvious technical leaks:
+
+- no API-key-like strings;
+- no `file_path`, `docx_path`, `db://` or local filesystem paths;
+- no unresolved placeholders such as `undefined`;
+- required AI assistance notice;
+- required Ábacos corporate footer;
+- required sources for scientific, curriculum and validation reports.
 
 ## Production Hardening Pending
 
@@ -68,3 +98,4 @@ Search providers may receive query strings derived from project area, level, leg
 - Full role-based assignment model for reviewers.
 - Structured log redaction policy.
 - Backup and retention policy.
+- Formal RGPD/legal sign-off before processing real client documents with external providers.

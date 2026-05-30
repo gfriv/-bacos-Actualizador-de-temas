@@ -54,8 +54,11 @@ async def test_research_analysis_uses_official_curriculum_evidence() -> None:
     result = await build_research_analysis(project, [section], FakeSearchProvider())
     curriculum = next(item for item in result.suggestions if item.suggestion_type.value == "legal_curricular")
 
-    assert len(result.reports) == 2
+    assert len(result.reports) == 6
     assert len(result.suggestions) == 2
+    assert any(report.report_type.value == "source_validation" for report in result.reports)
+    assert all("Centro de Formación y Estudios Ábacos" in report.content_markdown for report in result.reports)
+    assert all("asistencia de IA" in report.content_markdown for report in result.reports)
     assert "boe.es" in (curriculum.source_reference or "")
     assert curriculum.confidence_level == "high"
 

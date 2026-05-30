@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { BrandFooter } from "@/components/brand/BrandFooter";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { InteractionLayer } from "@/components/layout/InteractionLayer";
 import { MobileBottomNav, MobileNavigation, Sidebar } from "@/components/layout/Sidebar";
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Topbar onOpenNavigation={() => setMobileNavOpen(true)} />
           <main className="mx-auto w-full max-w-7xl px-3 pb-28 pt-4 sm:px-6 sm:pt-6 lg:px-8 lg:pb-8">
             {children}
+            <BrandFooter />
           </main>
         </div>
       </div>
