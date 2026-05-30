@@ -31,6 +31,12 @@ The system receives a teacher-authored DOCX/PDF, extracts text, splits sections,
 
 The AI layer never owns final truth. It proposes structured suggestions. The teacher must validate before consolidation.
 
+## Document Processing
+
+The upload pipeline validates the actual container before extraction: DOCX must be a valid Word ZIP package and PDF must start as a PDF document. DOCX extraction preserves paragraph order, styled headings, body tables, headers and footers. PDF extraction uses `pdfplumber` first for layout-aware text and table recovery, then falls back to `pypdf`. If a PDF has no extractable text, the API returns the explicit scanned-PDF OCR message instead of silently producing an empty analysis.
+
+The section splitter understands Markdown headings, numbered/nested headings, topic-style headings and uppercase academic headings while avoiding table rows and page markers. Very long sections are chunked into ordered parts so downstream analysis remains manageable.
+
 ## AI Provider Boundary
 
 The provider choice is centralized in `ModelRouter`, not scattered across UI components. The frontend exposes a session-level selector for API providers or Ollama local, but all document processing calls still go through the backend.

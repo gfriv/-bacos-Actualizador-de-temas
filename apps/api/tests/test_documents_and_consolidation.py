@@ -1,9 +1,16 @@
 from io import BytesIO
+from pathlib import Path
 
+import pytest
 from docx import Document
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 from app.core.config import settings
+from app.document_processing.docx_extractor import extract_docx_text
+from app.document_processing.docx_writer import write_markdown_docx
+from app.document_processing.pdf_extractor import SCANNED_PDF_MESSAGE, extract_pdf_text
+from app.document_processing.section_splitter import split_sections
 from tests.test_projects import create_project
 
 
@@ -14,6 +21,28 @@ def make_docx_bytes() -> bytes:
     document.add_paragraph("Texto original sobre competencias, criterios y evaluación.")
     document.add_heading("2. Desarrollo", level=1)
     document.add_paragraph("Contenido científico pendiente de revisión.")
+    document.save(buffer)
+    buffer.seek(0)
+    return buffer.read()
+
+
+def make_complex_docx_bytes() -> bytes:
+    buffer = BytesIO()
+    document = Document()
+    section = document.sections[0]
+    section.header.paragraphs[0].text = "Centro de Estudios Ábacos"
+    section.footer.paragraphs[0].text = "Material docente revisable"
+    document.add_heading("Tema 1. Desarrollo evolutivo", level=1)
+    document.add_paragraph("Texto introductorio con competencias y evaluación.")
+    table = document.add_table(rows=3, cols=2)
+    table.cell(0, 0).text = "Concepto"
+    table.cell(0, 1).text = "Aplicación didáctica"
+    table.cell(1, 0).text = "Atención"
+    table.cell(1, 1).text = "Actividades graduadas"
+    table.cell(2, 0).text = "Memoria"
+    table.cell(2, 1).text = "Recuperación espaciada"
+    document.add_heading("1.1 Marco curricular", level=2)
+    document.add_paragraph("Referencia a normativa de Extremadura para Primaria.")
     document.save(buffer)
     buffer.seek(0)
     return buffer.read()
@@ -41,6 +70,75 @@ def test_upload_document_extracts_docx(client: TestClient, auth_headers: dict[st
     assert len(sections.json()) >= 1
 
 
+def test_docx_extractor_preserves_headers_tables_and_headings(tmp_path: Path) -> None:
+    path = tmp_path / "tema-complejo.docx"
+    path.write_bytes(make_complex_docx_bytes())
+
+    extracted = extract_docx_text(path)
+
+    assert "Centro de Estudios Ábacos" in extracted
+    assert "# Tema 1. Desarrollo evolutivo" in extracted
+    assert "| Concepto | Aplicación didáctica |" in extracted
+    assert "Recuperación espaciada" in extracted
+    assert "## 1.1 Marco curricular" in extracted
+
+
+def test_section_splitter_handles_nested_headings_and_tables() -> None:
+    sections = split_sections(
+        "\n".join(
+            [
+                "# Tema 1. Desarrollo evolutivo",
+                "Texto inicial.",
+                "| Concepto | Aplicación |",
+                "| --- | --- |",
+                "| Atención | Actividades graduadas |",
+                "1.1 Marco curricular",
+                "Normativa, competencias y saberes.",
+            ]
+        )
+    )
+
+    assert [section.title for section in sections] == [
+        "Tema 1. Desarrollo evolutivo",
+        "1.1 Marco curricular",
+    ]
+    assert "| Concepto | Aplicación |" in sections[0].content
+    assert "competencias" in sections[1].detected_concepts
+
+
+def test_pdf_extractor_reports_scanned_pdf(tmp_path: Path) -> None:
+    path = tmp_path / "escaneado.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with path.open("wb") as file:
+        writer.write(file)
+
+    with pytest.raises(ValueError, match=SCANNED_PDF_MESSAGE):
+        extract_pdf_text(path)
+
+
+def test_docx_writer_exports_markdown_tables(tmp_path: Path) -> None:
+    path = tmp_path / "consolidado.docx"
+
+    write_markdown_docx(
+        "\n\n".join(
+            [
+                "# Documento consolidado",
+                "| Concepto | Aplicación |",
+                "| --- | --- |",
+                "| Atención | Actividades graduadas |",
+                "- Revisión docente obligatoria",
+            ]
+        ),
+        path,
+    )
+
+    document = Document(path)
+    assert document.paragraphs[0].text == "Documento consolidado"
+    assert len(document.tables) == 1
+    assert document.tables[0].cell(1, 1).text == "Actividades graduadas"
+
+
 def test_upload_invalid_docx_returns_422_without_internal_path(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
@@ -57,7 +155,7 @@ def test_upload_invalid_docx_returns_422_without_internal_path(
         },
     )
     assert response.status_code == 422
-    assert "DOCX/PDF" in response.json()["detail"]
+    assert "DOCX" in response.json()["detail"]
     assert "storage" not in response.json()["detail"].lower()
 
 

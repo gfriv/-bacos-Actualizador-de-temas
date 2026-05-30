@@ -31,6 +31,7 @@ from app.document_processing.docx_extractor import extract_docx_text
 from app.document_processing.docx_writer import write_markdown_docx
 from app.document_processing.pdf_extractor import extract_pdf_text
 from app.document_processing.section_splitter import split_sections
+from app.document_processing.validators import validate_document_bytes
 from app.llm.model_router import ModelRouter
 from app.llm.providers.ollama_provider import OllamaProvider
 from app.llm.providers.registry import PROVIDER_DESCRIPTORS
@@ -333,6 +334,10 @@ async def upload_document(
     content = await file.read()
     if len(content) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo permitido.")
+    try:
+        validate_document_bytes(content, suffix)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         if uses_database_storage():
