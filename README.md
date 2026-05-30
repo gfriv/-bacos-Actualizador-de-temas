@@ -17,6 +17,7 @@ También contempla preparación de oposiciones docentes: Infantil, Primaria, Sec
 - Python 3.12 o superior.
 - uv para Python: `python -m pip install uv`.
 - Docker Desktop para el arranque con Docker.
+- Opcional, si se decide activar OCR en otra fase: Tesseract OCR con idiomas `spa` y `eng`.
 - Opcional para IA local real: Ollama con un modelo compatible, por ejemplo `llama3.2:1b`.
 
 ## Instalación
@@ -46,6 +47,23 @@ python -m uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 API en `http://localhost:8000/api/health`.
+
+## OCR Para PDF Escaneado
+
+El backend intenta extraer texto con `pdfplumber` y `pypdf`. El OCR queda preparado pero desactivado por defecto. Si en otra fase se activa `OCR_ENABLED=true`, renderizará páginas y ejecutará Tesseract OCR, siempre que el motor esté instalado explícitamente en el entorno.
+
+Variables relevantes:
+
+```env
+OCR_ENABLED=false
+OCR_LANGUAGES=spa+eng
+OCR_DPI=200
+OCR_MAX_PAGES=40
+OCR_TIMEOUT_SECONDS=30
+OCR_TESSERACT_CMD=
+```
+
+No se instala Tesseract automáticamente. Si más adelante se decide usar OCR, instala Tesseract manualmente o en una imagen específica, instala la dependencia opcional `pytesseract` y define `OCR_TESSERACT_CMD` si el ejecutable no está en `PATH`.
 
 ## Acceso Demo
 
@@ -307,4 +325,6 @@ python -m uv run pytest
 
 La base incluye arquitectura, dependencias, diseño visual Ábacos, rutas, modelos, ModelRouter, workers RQ, docs y tests mínimos. El frontend conecta con la API para login local/demo, creación de proyecto, subida DOCX/PDF, análisis con búsqueda trazable opcional, revisión de sugerencias, consolidación y recursos.
 
-Pendiente para piloto real: activar un backend gestionado con el blueprint `render.yaml` o servicio equivalente, configurar almacenamiento documental compartido/object storage si API y worker no comparten disco, cerrar revisión RGPD formal antes de documentos reales, OCR para PDFs escaneados y evaluación pedagógica con docentes.
+El backend deja preparada una integración OCR opcional para PDFs escaneados, pero `OCR_ENABLED=false` por defecto y no se instala Tesseract automáticamente.
+
+Pendiente para piloto real: activar un backend gestionado con el blueprint `render.yaml` o servicio equivalente, configurar almacenamiento documental compartido/object storage si API y worker no comparten disco, cerrar revisión RGPD formal antes de documentos reales, aislar OCR con límites de CPU/memoria en producción y evaluación pedagógica con docentes.

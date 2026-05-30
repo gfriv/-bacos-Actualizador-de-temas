@@ -40,6 +40,7 @@ También se ha preparado `apps/api` como proyecto FastAPI serverless para Vercel
 - `apps/api/vercel.json` usa la detección nativa de FastAPI en Vercel;
 - `apps/api/requirements.txt` instala dependencias Python;
 - `STORAGE_BACKEND=database` guarda DOCX/PDF y recursos en la tabla `file_blobs`, evitando depender del disco efímero.
+- El OCR para PDF escaneado queda preparado pero desactivado por defecto. La imagen Docker de API no instala Tesseract automáticamente. Si se activa `OCR_ENABLED=true` en otra fase, hay que crear una imagen específica con Tesseract, idiomas y dependencias OCR opcionales.
 
 Este modo permite probar un backend publico funcional, pero no sustituye al despliegue con worker persistente para produccion completa.
 Los endpoints `/queue` devuelven `503` si no hay `REDIS_URL` accesible o worker persistente escuchando las colas RQ. En Vercel serverless deben usarse los endpoints sincronos de demo, o conectar el API a un Redis y worker externo.

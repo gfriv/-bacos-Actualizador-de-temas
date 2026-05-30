@@ -25,6 +25,7 @@
 - Legacy exports missing only formal metadata are repaired with an explicit compatibility note; exports containing secrets, internal paths or placeholders remain blocked.
 - `ReportQualityGate` blocks likely API keys, bearer tokens, internal storage paths, unresolved placeholders and missing required traceability.
 - Invalid or damaged DOCX/PDF uploads return `422` without leaking filesystem paths.
+- PDF OCR is prepared but disabled by default. If explicitly enabled, it runs locally in the backend process, is bounded by `OCR_MAX_PAGES`, `OCR_DPI` and `OCR_TIMEOUT_SECONDS`, and returns OCR errors without filesystem paths.
 - Generic AI generation endpoints require authentication so the API cannot be abused as a public LLM proxy.
 - Provider error responses are sanitized so API keys are not reflected in HTTP responses, UI toasts or logs.
 
@@ -94,7 +95,7 @@ The backend checks generated Markdown before allowing report/resource downloads 
 - Strong JWT secret rotation.
 - Encrypted object storage.
 - Malware scanning for uploads.
-- OCR isolation if added.
+- Stronger OCR isolation for production, for example a sandboxed worker/container with CPU and memory limits.
 - Full role-based assignment model for reviewers.
 - Structured log redaction policy.
 - Backup and retention policy.

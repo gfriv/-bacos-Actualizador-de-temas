@@ -33,7 +33,9 @@ The AI layer never owns final truth. It proposes structured suggestions. The tea
 
 ## Document Processing
 
-The upload pipeline validates the actual container before extraction: DOCX must be a valid Word ZIP package and PDF must start as a PDF document. DOCX extraction preserves paragraph order, styled headings, body tables, headers and footers. PDF extraction uses `pdfplumber` first for layout-aware text and table recovery, then falls back to `pypdf`. If a PDF has no extractable text, the API returns the explicit scanned-PDF OCR message instead of silently producing an empty analysis.
+The upload pipeline validates the actual container before extraction: DOCX must be a valid Word ZIP package and PDF must start as a PDF document. DOCX extraction preserves paragraph order, styled headings, body tables, headers and footers. PDF extraction uses `pdfplumber` first for layout-aware text and table recovery, then falls back to `pypdf`. OCR support is prepared but disabled by default with `OCR_ENABLED=false`; no OCR engine is installed automatically.
+
+If OCR is explicitly enabled in a later phase, it is bounded by `OCR_MAX_PAGES`, `OCR_DPI` and `OCR_TIMEOUT_SECONDS` to avoid unbounded processing. The default language set is `spa+eng`; deployments must install Tesseract and the optional OCR adapter dependencies deliberately, or set `OCR_TESSERACT_CMD` to the executable path. If OCR is unavailable, the API returns a clear `422` instead of silently producing an empty analysis.
 
 The section splitter understands Markdown headings, numbered/nested headings, topic-style headings and uppercase academic headings while avoiding table rows and page markers. Very long sections are chunked into ordered parts so downstream analysis remains manageable.
 

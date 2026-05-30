@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     upload_dir: str = "./storage/uploads"
     generated_dir: str = "./storage/generated"
     max_upload_mb: int = 50
+    ocr_enabled: bool = False
+    ocr_languages: str = "spa+eng"
+    ocr_dpi: int = 200
+    ocr_max_pages: int = 40
+    ocr_timeout_seconds: int = 30
+    ocr_tesseract_cmd: str = ""
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     llm_provider: str = "mock"
     llm_base_url: str = ""

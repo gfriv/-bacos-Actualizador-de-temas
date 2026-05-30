@@ -4,14 +4,25 @@ from typing import Any
 
 from pypdf import PdfReader
 
+from app.core.config import settings
+from app.document_processing.ocr_extractor import (
+    OCRConfig,
+    OCRProcessingError,
+    OCRUnavailableError,
+    extract_pdf_ocr_text,
+)
+
 SCANNED_PDF_MESSAGE = "Este PDF parece escaneado. Será necesario OCR en una fase posterior."
+OCR_NO_TEXT_MESSAGE = (
+    "Este PDF parece escaneado. El OCR se ha ejecutado, pero no ha recuperado texto suficiente."
+)
 TEXT_THRESHOLD_CHARS = 20
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 WHITESPACE_RE = re.compile(r"[ \t]+")
 
 
-def extract_pdf_text(path: str | Path) -> str:
-    """Extract PDF text with a layout-aware first pass and a pypdf fallback."""
+def extract_pdf_text(path: str | Path, *, ocr_enabled: bool | None = None) -> str:
+    """Extract PDF text, falling back to OCR for scanned PDFs when enabled."""
 
     extracted = _extract_with_pdfplumber(path)
     if _has_meaningful_text(extracted):
@@ -21,7 +32,30 @@ def extract_pdf_text(path: str | Path) -> str:
     if _has_meaningful_text(extracted):
         return extracted
 
+    should_run_ocr = settings.ocr_enabled if ocr_enabled is None else ocr_enabled
+    if should_run_ocr:
+        ocr_text = _extract_with_ocr(path)
+        if _has_meaningful_text(ocr_text):
+            return ocr_text
+        raise ValueError(OCR_NO_TEXT_MESSAGE)
+
     raise ValueError(SCANNED_PDF_MESSAGE)
+
+
+def _extract_with_ocr(path: str | Path) -> str:
+    config = OCRConfig(
+        languages=settings.ocr_languages,
+        dpi=settings.ocr_dpi,
+        max_pages=settings.ocr_max_pages,
+        timeout_seconds=settings.ocr_timeout_seconds,
+        tesseract_cmd=settings.ocr_tesseract_cmd,
+    )
+    try:
+        return extract_pdf_ocr_text(path, config)
+    except OCRUnavailableError as exc:
+        raise ValueError(f"{SCANNED_PDF_MESSAGE} {exc}") from exc
+    except OCRProcessingError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _extract_with_pdfplumber(path: str | Path) -> str:

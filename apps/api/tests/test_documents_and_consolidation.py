@@ -9,6 +9,7 @@ from pypdf import PdfWriter
 from app.core.config import settings
 from app.document_processing.docx_extractor import extract_docx_text
 from app.document_processing.docx_writer import write_markdown_docx
+from app.document_processing.ocr_extractor import OCRConfig, OCRUnavailableError
 from app.document_processing.pdf_extractor import SCANNED_PDF_MESSAGE, extract_pdf_text
 from app.document_processing.section_splitter import split_sections
 from tests.test_projects import create_project
@@ -114,7 +115,44 @@ def test_pdf_extractor_reports_scanned_pdf(tmp_path: Path) -> None:
         writer.write(file)
 
     with pytest.raises(ValueError, match=SCANNED_PDF_MESSAGE):
-        extract_pdf_text(path)
+        extract_pdf_text(path, ocr_enabled=False)
+
+
+def test_pdf_extractor_uses_ocr_for_scanned_pdf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "escaneado.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with path.open("wb") as file:
+        writer.write(file)
+
+    def fake_ocr(pdf_path: str | Path, config: OCRConfig) -> str:
+        assert Path(pdf_path) == path
+        assert config.languages
+        return "[Página 1 - OCR]\nTexto recuperado mediante OCR para análisis docente."
+
+    monkeypatch.setattr("app.document_processing.pdf_extractor.extract_pdf_ocr_text", fake_ocr)
+
+    extracted = extract_pdf_text(path, ocr_enabled=True)
+
+    assert "Texto recuperado mediante OCR" in extracted
+
+
+def test_pdf_extractor_reports_missing_ocr_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "escaneado.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with path.open("wb") as file:
+        writer.write(file)
+
+    def fake_ocr(pdf_path: str | Path, config: OCRConfig) -> str:
+        raise OCRUnavailableError("Tesseract OCR no está disponible en el servidor.")
+
+    monkeypatch.setattr("app.document_processing.pdf_extractor.extract_pdf_ocr_text", fake_ocr)
+
+    with pytest.raises(ValueError, match="Tesseract OCR no está disponible"):
+        extract_pdf_text(path, ocr_enabled=True)
 
 
 def test_docx_writer_exports_markdown_tables(tmp_path: Path) -> None:
