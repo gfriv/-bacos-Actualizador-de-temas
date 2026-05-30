@@ -1,0 +1,11 @@
+**/.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc
+*.log
+.env
+storage/uploads/**
+storage/generated/**

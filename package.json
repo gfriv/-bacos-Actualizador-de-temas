@@ -1,0 +1,14 @@
+{
+  "name": "abacos-academic-update-system",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.4.0",
+  "scripts": {
+    "dev:web": "corepack pnpm --dir apps/web dev",
+    "build:web": "corepack pnpm --dir apps/web build",
+    "lint:web": "corepack pnpm --dir apps/web lint",
+    "typecheck:web": "corepack pnpm --dir apps/web typecheck",
+    "test:web": "corepack pnpm --dir apps/web test",
+    "test": "corepack pnpm test:web"
+  }
+}

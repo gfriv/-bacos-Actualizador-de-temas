@@ -1,0 +1,95 @@
+services:
+  - type: web
+    name: abacos-api
+    runtime: docker
+    dockerfilePath: ./infra/docker/api.Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    disk:
+      name: abacos-api-storage
+      mountPath: /app/storage
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: abacos-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: abacos-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: '["https://abacos-academic-update-system.vercel.app","http://localhost:3000","http://127.0.0.1:3000"]'
+      - key: STORAGE_BACKEND
+        value: local
+      - key: UPLOAD_DIR
+        value: /app/storage/uploads
+      - key: GENERATED_DIR
+        value: /app/storage/generated
+      - key: MAX_UPLOAD_MB
+        value: 50
+      - key: LLM_PROVIDER
+        value: mock
+      - key: OLLAMA_BASE_URL
+        value: http://localhost:11434
+      - key: OLLAMA_PULL_ENABLED
+        value: false
+      - key: ANALYSIS_LLM_ENABLED
+        value: false
+      - key: WEB_SEARCH_PROVIDER
+        value: duckduckgo
+      - key: WEB_SEARCH_MAX_RESULTS
+        value: 5
+      - key: WEB_SEARCH_TIMEOUT_SECONDS
+        value: 6
+      - key: DEMO_ACCESS_ENABLED
+        value: false
+
+  - type: worker
+    name: abacos-worker
+    runtime: docker
+    dockerfilePath: ./infra/docker/api.Dockerfile
+    dockerContext: .
+    dockerCommand: python /app/workers/worker.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: abacos-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: abacos-redis
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        value: '["https://abacos-academic-update-system.vercel.app","http://localhost:3000","http://127.0.0.1:3000"]'
+      - key: STORAGE_BACKEND
+        value: local
+      - key: UPLOAD_DIR
+        value: /app/storage/uploads
+      - key: GENERATED_DIR
+        value: /app/storage/generated
+      - key: LLM_PROVIDER
+        value: mock
+      - key: OLLAMA_BASE_URL
+        value: http://localhost:11434
+      - key: OLLAMA_PULL_ENABLED
+        value: false
+      - key: ANALYSIS_LLM_ENABLED
+        value: false
+      - key: WEB_SEARCH_PROVIDER
+        value: duckduckgo
+
+  - type: redis
+    name: abacos-redis
+    ipAllowList: []
+
+databases:
+  - name: abacos-postgres
+    databaseName: abacos
+    user: abacos

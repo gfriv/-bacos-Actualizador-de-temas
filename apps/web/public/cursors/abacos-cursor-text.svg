@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="Cursor texto Ábacos">
+  <path d="M9 4h14v5h-4.4v14H23v5H9v-5h4.4V9H9V4z" fill="#fff" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M9 4h14v5h-4.4v14H23v5H9v-5h4.4V9H9V4z" fill="#050505" stroke="#050505" stroke-width=".9" stroke-linejoin="round"/>
+  <path d="M16 9v14" stroke="#f7f7f5" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="16" y1="10.4" x2="16" y2="21.6" stroke="#d8b85f" stroke-width=".75" stroke-linecap="round"/>
+  <circle cx="16" cy="12.2" r="1.15" fill="#1f5ea8"/>
+  <circle cx="16" cy="15.2" r="1.15" fill="#4c9a4b"/>
+  <circle cx="16" cy="18.2" r="1.15" fill="#b20d22"/>
+  <circle cx="16" cy="21.2" r="1.15" fill="#e6b72e"/>
+  <path d="M18.1 1.8c1.2 0 2 .6 2 1.4 0 1.1-1.8 3.1-4 3.1h-1.5l1.9-3.5c.3-.6.8-1 1.6-1z" fill="#c5162e"/>
+</svg>

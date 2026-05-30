@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 257 257" role="img" aria-labelledby="title desc">
+  <title id="title">Ábacos Centro de Estudios</title>
+  <desc id="desc">Logotipo de Ábacos con una A formada sobre un ábaco de cuentas de colores.</desc>
+  <rect width="257" height="257" fill="#FFFFFF"/>
+  <g transform="translate(38 5)">
+    <path d="M97 0c5 0 9 3 9 7 0 5-9 16-20 16h-8L87 3c2-2 5-3 10-3z" fill="#D20A1E"/>
+    <g stroke="#D8B85F" stroke-width="2" stroke-linecap="round">
+      <line x1="15" y1="43" x2="166" y2="43"/><line x1="15" y1="62" x2="166" y2="62"/>
+      <line x1="15" y1="81" x2="166" y2="81"/><line x1="15" y1="100" x2="166" y2="100"/>
+      <line x1="15" y1="119" x2="166" y2="119"/>
+    </g>
+    <g>
+      <circle cx="16" cy="43" r="6" fill="#0D5B9E"/><circle cx="37" cy="43" r="6" fill="#0D5B9E"/>
+      <circle cx="98" cy="43" r="6" fill="#E6B72E"/><circle cx="111" cy="43" r="6" fill="#E6B72E"/>
+      <circle cx="146" cy="43" r="6" fill="#E6B72E"/><circle cx="166" cy="43" r="6" fill="#E6B72E"/>
+      <circle cx="16" cy="62" r="6" fill="#1D9A4B"/><circle cx="36" cy="62" r="6" fill="#1D9A4B"/>
+      <circle cx="72" cy="62" r="6" fill="#D20A1E"/><circle cx="92" cy="62" r="6" fill="#D20A1E"/>
+      <circle cx="145" cy="62" r="6" fill="#D20A1E"/><circle cx="166" cy="62" r="6" fill="#D20A1E"/>
+      <circle cx="16" cy="81" r="6" fill="#D20A1E"/><circle cx="36" cy="81" r="6" fill="#D20A1E"/>
+      <circle cx="72" cy="81" r="6" fill="#0D5B9E"/><circle cx="92" cy="81" r="6" fill="#0D5B9E"/>
+      <circle cx="145" cy="81" r="6" fill="#0D5B9E"/><circle cx="166" cy="81" r="6" fill="#0D5B9E"/>
+      <circle cx="16" cy="100" r="6" fill="#E6B72E"/><circle cx="36" cy="100" r="6" fill="#E6B72E"/>
+      <circle cx="72" cy="100" r="6" fill="#1D9A4B"/><circle cx="92" cy="100" r="6" fill="#1D9A4B"/>
+      <circle cx="145" cy="100" r="6" fill="#1D9A4B"/><circle cx="166" cy="100" r="6" fill="#1D9A4B"/>
+      <circle cx="16" cy="119" r="6" fill="#1D9A4B"/><circle cx="36" cy="119" r="6" fill="#1D9A4B"/>
+      <circle cx="72" cy="119" r="6" fill="#E6B72E"/><circle cx="92" cy="119" r="6" fill="#E6B72E"/>
+      <circle cx="145" cy="119" r="6" fill="#E6B72E"/><circle cx="166" cy="119" r="6" fill="#E6B72E"/>
+    </g>
+    <text x="91" y="131" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="134" font-weight="700" fill="#050505">A</text>
+    <path d="M42 134 L88 38 L135 134" fill="none" stroke="#050505" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M68 95 H112" fill="none" stroke="#050505" stroke-width="8" stroke-linecap="round"/>
+    <path d="M-20 151c4-2 7-3 9-1 2 3-1 9-8 12h-6l3-9c0-1 1-2 2-2z" fill="#D20A1E"/>
+  </g>
+  <text x="128" y="205" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="58" fill="#C9001B"><tspan fill="#050505">Á</tspan><tspan>BACOS</tspan></text>
+  <text x="128" y="238" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="29" fill="#111111">Centro de Estudios</text>
+</svg>

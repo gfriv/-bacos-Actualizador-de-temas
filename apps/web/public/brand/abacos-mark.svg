@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 150" role="img" aria-labelledby="title desc">
+  <title id="title">Marca Ábacos</title>
+  <desc id="desc">Símbolo de ábaco con una A central.</desc>
+  <rect width="190" height="150" rx="12" fill="#FFFFFF"/>
+  <path d="M104 5c5 0 9 3 9 7 0 5-9 16-20 16h-8l9-20c2-2 5-3 10-3z" fill="#D20A1E"/>
+  <g stroke="#D8B85F" stroke-width="2" stroke-linecap="round">
+    <line x1="24" y1="48" x2="176" y2="48"/><line x1="24" y1="67" x2="176" y2="67"/>
+    <line x1="24" y1="86" x2="176" y2="86"/><line x1="24" y1="105" x2="176" y2="105"/>
+    <line x1="24" y1="124" x2="176" y2="124"/>
+  </g>
+  <g>
+    <circle cx="25" cy="48" r="6" fill="#0D5B9E"/><circle cx="46" cy="48" r="6" fill="#0D5B9E"/>
+    <circle cx="122" cy="48" r="6" fill="#E6B72E"/><circle cx="136" cy="48" r="6" fill="#E6B72E"/><circle cx="176" cy="48" r="6" fill="#E6B72E"/>
+    <circle cx="25" cy="67" r="6" fill="#1D9A4B"/><circle cx="46" cy="67" r="6" fill="#1D9A4B"/>
+    <circle cx="82" cy="67" r="6" fill="#D20A1E"/><circle cx="102" cy="67" r="6" fill="#D20A1E"/><circle cx="155" cy="67" r="6" fill="#D20A1E"/><circle cx="176" cy="67" r="6" fill="#D20A1E"/>
+    <circle cx="25" cy="86" r="6" fill="#D20A1E"/><circle cx="46" cy="86" r="6" fill="#D20A1E"/>
+    <circle cx="82" cy="86" r="6" fill="#0D5B9E"/><circle cx="102" cy="86" r="6" fill="#0D5B9E"/><circle cx="155" cy="86" r="6" fill="#0D5B9E"/><circle cx="176" cy="86" r="6" fill="#0D5B9E"/>
+    <circle cx="25" cy="105" r="6" fill="#E6B72E"/><circle cx="46" cy="105" r="6" fill="#E6B72E"/>
+    <circle cx="82" cy="105" r="6" fill="#1D9A4B"/><circle cx="102" cy="105" r="6" fill="#1D9A4B"/><circle cx="155" cy="105" r="6" fill="#1D9A4B"/><circle cx="176" cy="105" r="6" fill="#1D9A4B"/>
+    <circle cx="25" cy="124" r="6" fill="#1D9A4B"/><circle cx="46" cy="124" r="6" fill="#1D9A4B"/>
+    <circle cx="82" cy="124" r="6" fill="#E6B72E"/><circle cx="102" cy="124" r="6" fill="#E6B72E"/><circle cx="155" cy="124" r="6" fill="#E6B72E"/><circle cx="176" cy="124" r="6" fill="#E6B72E"/>
+  </g>
+  <text x="100" y="136" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="132" font-weight="700" fill="#050505">A</text>
+  <path d="M51 139 L96 43 L143 139" fill="none" stroke="#050505" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M77 100 H121" fill="none" stroke="#050505" stroke-width="8" stroke-linecap="round"/>
+</svg>
