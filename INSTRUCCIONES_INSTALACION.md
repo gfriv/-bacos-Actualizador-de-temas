@@ -9,7 +9,7 @@ El instalador actual crea una aplicacion de escritorio con Electron. La app abre
 Archivo:
 
 ```text
-release/AbacosIA-Setup-0.1.0.exe
+release/AbacosIA-Setup-0.1.1.exe
 ```
 
 La version actual esta pensada para demo tecnica/local. El instalador generado con el runtime embebido incluye Python y las dependencias del backend, por lo que el usuario final no deberia tener que instalar Python ni uv para arrancar la aplicacion.
@@ -80,7 +80,7 @@ C:\Users\gfriv\OneDrive\Desktop\codex\pacientes sinteticos nutricia\Abacos\relea
 2. Ejecutar:
 
 ```text
-AbacosIA-Setup-0.1.0.exe
+AbacosIA-Setup-0.1.1.exe
 ```
 
 3. Seguir el asistente de instalacion.
@@ -194,14 +194,15 @@ El instalador actualizado se genero el 31/05/2026 e incluye el pipeline nuevo:
 
 Tamanos verificados:
 
-- Instalador: `230.190.177 bytes` (`219,5 MB` aprox.).
-- Runtime Python incluido en `win-unpacked`: `133,4 MB` aprox.
+- Instalador: `230.191.110 bytes` (`219,5 MB` aprox.).
+- Runtime Python incluido en `win-unpacked`: `133,5 MB` aprox.
+- SHA-256: `9E7CBB4583BE660A8EA95CDF4C2CD1DDB635B5F55FC6DD2D42589017DA6470AC`.
 
 Pruebas realizadas:
 
 - `resources/python/python.exe` importa FastAPI, Uvicorn y Alembic.
-- El paquete desempaquetado arranca frontend en `127.0.0.1:3765`.
-- El backend embebido responde en `127.0.0.1:8765/api/health`.
+- El paquete contiene la puerta de calidad corregida: acepta texto docente normal con "todo", URLs publicas con `/app/` y terminos academicos como "Null hypothesis".
+- El mismo paquete sigue bloqueando placeholders tecnicos reales como `TODO`.
 
 ## Recomendacion Para Siguiente Fase
 

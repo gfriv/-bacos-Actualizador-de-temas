@@ -30,13 +30,19 @@ SECRET_PATTERNS = (
     re.compile(r"\b(?:api[_-]?key|authorization|bearer)\s*[:=]\s*[A-Za-z0-9_.-]{12,}", re.IGNORECASE),
 )
 INTERNAL_PATH_PATTERN = re.compile(
-    r"(?:[A-Za-z]:\\|/app/|/home/|/tmp/|apps[\\/]+api[\\/]+storage|"
-    r"storage[\\/]+uploads|storage[\\/]+generated|db://|file_path|docx_path)",
+    r"(?:"
+    r"[A-Za-z]:\\|"
+    r"(?:^|[\s\"'`(=])/(?:app|home|tmp)/|"
+    r"(?:^|[\s\"'`(=])apps[\\/]+api[\\/]+storage|"
+    r"(?:^|[\s\"'`(=])storage[\\/]+(?:uploads|generated)|"
+    r"\bdb://|\bfile_path\b|\bdocx_path\b"
+    r")",
     re.IGNORECASE,
 )
 PLACEHOLDER_PATTERNS = (
     re.compile(r"\[object Object\]"),
-    re.compile(r"\bundefined\b|\bnull\b|null\.", re.IGNORECASE),
+    re.compile(r"\bundefined\b"),
+    re.compile(r"\bnull\b|null\."),
     # TODO must remain case-sensitive: "todo" is a common Spanish word in academic reports.
     re.compile(r"\bTODO\b"),
     re.compile(r"\bCHANGE_ME\b", re.IGNORECASE),

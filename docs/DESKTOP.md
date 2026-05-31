@@ -48,14 +48,15 @@ En modo empaquetado, Electron intenta usar `resources/python/python.exe` y arran
 Medidas verificadas el 31/05/2026:
 
 - `desktop-runtime/python`: 132,7 MB.
-- `release/win-unpacked/resources/python`: 133,4 MB.
-- `release/AbacosIA-Setup-0.1.0.exe`: 230.190.177 bytes.
+- `release/win-unpacked/resources/python`: 133,5 MB.
+- `release/AbacosIA-Setup-0.1.1.exe`: 230.191.110 bytes.
+- SHA-256 del instalador `0.1.1`: `9E7CBB4583BE660A8EA95CDF4C2CD1DDB635B5F55FC6DD2D42589017DA6470AC`.
 
 Prueba de paquete desempaquetado:
 
 - Frontend local: `http://127.0.0.1:3765/login`.
 - Backend local: `http://127.0.0.1:8765/api/health`.
-- Resultado: ambos respondieron correctamente usando el runtime Python embebido.
+- Resultado: el paquete contiene el backend corregido y el Python embebido valida que texto docente normal con "todo", URLs publicas con `/app/` y terminos academicos como "Null hypothesis" no bloquean la puerta de calidad, mientras `TODO` tecnico sigue bloqueado.
 
 Ollama solo debe instalarse si se elige modo local real.
 

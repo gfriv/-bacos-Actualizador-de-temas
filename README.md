@@ -334,7 +334,7 @@ El modo escritorio:
 - ofrece un wizard inicial para elegir API propia u Ollama local;
 - usa `http://127.0.0.1:11434/api/tags` para detectar modelos de Ollama.
 
-El instalador Windows genera un runtime Python embebido para arrancar FastAPI sin Python/uv externos en el equipo del usuario. El instalador verificado del 31/05/2026 pesa `230.190.177 bytes` y el paquete desempaquetado responde correctamente en frontend `127.0.0.1:3765` y backend `127.0.0.1:8765`. Sigue pendiente probarlo en una máquina limpia y firmar el ejecutable antes de distribuirlo ampliamente. Ver `docs/DESKTOP.md` e `INSTRUCCIONES_INSTALACION.md`.
+El instalador Windows genera un runtime Python embebido para arrancar FastAPI sin Python/uv externos en el equipo del usuario. El instalador verificado del 31/05/2026 es `release/AbacosIA-Setup-0.1.1.exe`, pesa `230.191.110 bytes` y contiene la correccion de la puerta de calidad para no bloquear texto docente normal como "todo" ni URLs publicas con `/app/`. SHA-256: `9E7CBB4583BE660A8EA95CDF4C2CD1DDB635B5F55FC6DD2D42589017DA6470AC`. Sigue pendiente probarlo en una maquina limpia y firmar el ejecutable antes de distribuirlo ampliamente. Ver `docs/DESKTOP.md` e `INSTRUCCIONES_INSTALACION.md`.
 
 ## Tests Y Calidad
 
