@@ -29,6 +29,8 @@ cd apps/api
 python -m uv sync
 ```
 
+Para usuarios que quieran instalar la version de escritorio, ver `INSTRUCCIONES_INSTALACION.md`.
+
 ## Frontend local
 
 ```bash
