@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 from app.core.config import settings
@@ -16,6 +16,24 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+
+def _normalize_legacy_revision_ids(connection) -> None:
+    legacy_pairs = {
+        "0003_merge_report_types_and_file_blobs": "0003_merge_reports_files",
+        "0004_evidence_quality_document_versions": "0004_evidence_quality_docs",
+    }
+    try:
+        connection.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).first()
+    except Exception:
+        connection.rollback()
+        return
+    for old_revision, new_revision in legacy_pairs.items():
+        connection.execute(
+            text("UPDATE alembic_version SET version_num = :new WHERE version_num = :old"),
+            {"old": old_revision, "new": new_revision},
+        )
+    connection.commit()
 
 
 def run_migrations_offline() -> None:
@@ -38,6 +56,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        _normalize_legacy_revision_ids(connection)
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():

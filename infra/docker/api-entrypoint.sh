@@ -2,5 +2,7 @@
 set -eu
 
 cd /app/apps/api
-alembic upgrade head
+if [ "${RUN_ALEMBIC_MIGRATIONS:-true}" = "true" ]; then
+  alembic upgrade head
+fi
 exec "$@"

@@ -21,6 +21,24 @@ const confidenceLabels: Record<string, string> = {
   high: "Alta",
 };
 
+const anchorLabels: Record<string, { label: string; className: string; help: string }> = {
+  matched: {
+    label: "Anclaje verificado",
+    className: "border-green-200 bg-green-50 text-green-800",
+    help: "El fragmento original se ha localizado en el documento y puede integrarse si la sugerencia esta aprobada.",
+  },
+  failed: {
+    label: "Anclaje fallido",
+    className: "border-abacos-red/25 bg-abacos-red-soft text-abacos-red-dark",
+    help: "El fragmento original ya no encaja con el documento activo. No se integrara automaticamente.",
+  },
+  unchecked: {
+    label: "Anclaje pendiente",
+    className: "border-abacos-yellow/35 bg-amber-50 text-amber-800",
+    help: "El anclaje se comprobara al consolidar. Conviene revisar que el fragmento original coincide.",
+  },
+};
+
 export function SuggestionReviewCard({
   id,
   section,
@@ -31,6 +49,7 @@ export function SuggestionReviewCard({
   confidence,
   status,
   suggestionType,
+  anchorStatus = "unchecked",
   teacherNotes,
   reviewedAt,
   onReview,
@@ -44,6 +63,7 @@ export function SuggestionReviewCard({
   confidence: string;
   status: StatusKey;
   suggestionType?: string;
+  anchorStatus?: string | null;
   teacherNotes?: string | null;
   reviewedAt?: string | null;
   onReview?: (id: number, payload: ReviewPayload) => void | Promise<void>;
@@ -63,6 +83,7 @@ export function SuggestionReviewCard({
 
   const confidenceLabel = confidenceLabels[confidence] ?? confidence;
   const isIntegrable = status === "approved" || status === "edited";
+  const anchor = anchorLabels[anchorStatus ?? "unchecked"] ?? anchorLabels.unchecked;
 
   return (
     <motion.article
@@ -84,6 +105,9 @@ export function SuggestionReviewCard({
                 {formatSuggestionType(suggestionType)}
               </Badge>
               <Badge variant="outline">Confianza {confidenceLabel}</Badge>
+              <Badge variant="outline" className={cn("gap-1.5", anchor.className)}>
+                {anchor.label}
+              </Badge>
               <HelpTooltip label="La confianza orienta la revisión, pero no sustituye la validación docente." />
             </div>
             <h3 className="mt-3 text-base font-semibold text-abacos-black">Sugerencia revisable</h3>
@@ -135,6 +159,9 @@ export function SuggestionReviewCard({
           <div className="interactive-card rounded-md border border-border bg-abacos-light p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-abacos-gray">Trazabilidad</p>
             <p className="mt-2 text-sm leading-6 text-abacos-black">{source}</p>
+            <p className="mt-3 rounded-md border border-white/80 bg-white p-3 text-xs leading-5 text-abacos-gray">
+              {anchor.help}
+            </p>
             {teacherNotes ? (
               <p className="mt-3 rounded-md bg-white p-3 text-xs leading-5 text-abacos-gray">
                 Nota docente: {teacherNotes}

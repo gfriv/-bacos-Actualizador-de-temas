@@ -88,7 +88,9 @@ La pantalla de acceso incluye un selector de motor de IA. En cada sesión se pue
 - `Local`: Ollama en `http://localhost:11434`.
 - `MockProvider`: modo de desarrollo sin coste.
 
-La clave API introducida por el usuario se guarda solo en `sessionStorage` del navegador y se envía al backend en la cabecera efímera `X-Abacos-AI-Config` únicamente para operaciones del pipeline: análisis e informes, y generación de recursos. No se persiste en base de datos ni se expone en respuestas públicas.
+Con sesión iniciada, la clave API introducida por el usuario se valida en backend y se transforma en una sesión efímera `X-Abacos-AI-Session`. El navegador conserva solo proveedor, modelo e identificador temporal; no guarda la clave completa en `sessionStorage`. Sin login, la UI solo puede guardar preferencias de proveedor/modelo y la validación queda bloqueada.
+
+La cabecera heredada `X-Abacos-AI-Config` sigue existiendo como compatibilidad local, pero el frontend elimina claves antiguas de `sessionStorage` y prioriza `X-Abacos-AI-Session` para operaciones del pipeline: análisis, informes y generación de recursos.
 
 Endpoints de soporte:
 
@@ -96,6 +98,7 @@ Endpoints de soporte:
 GET  /api/ai/providers
 POST /api/ai/providers/validate
 POST /api/ai/providers/models
+POST /api/ai/sessions
 POST /api/ai/ollama/pull
 ```
 
@@ -124,17 +127,20 @@ No se piden usuarios ni contraseñas de ChatGPT, Gemini, Claude ni servicios sim
 
 ## Busqueda Actualizada Para Informes
 
-El analisis incorpora una capa opcional de busqueda web antes de crear informes y sugerencias. Por privacidad, queda desactivada por defecto. Las fuentes localizadas se guardan en `source_reference` para revision docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un proveedor permitido, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM esta desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
+El analisis incorpora una capa opcional de busqueda web antes de crear informes y sugerencias. Por privacidad, queda desactivada por defecto. Las fuentes localizadas se guardan como `EvidenceSource`, se vinculan a sugerencias cuando procede y tambien quedan resumidas en `source_reference` para revision docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un proveedor permitido, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM esta desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
 
 Modo seguro por defecto:
 
 ```env
 WEB_SEARCH_PROVIDER=disabled
 EXTERNAL_WEB_SEARCH_ENABLED=false
+OFFICIAL_SOURCE_FETCH_ENABLED=true
 WEB_SEARCH_MAX_RESULTS=5
 WEB_SEARCH_TIMEOUT_SECONDS=6
 ANALYSIS_LLM_ENABLED=false
 ```
+
+`OFFICIAL_SOURCE_FETCH_ENABLED=true` permite recuperar fuentes oficiales curadas de BOE/DOE aunque la bÃºsqueda web general estÃ© desactivada. No sustituye la comprobaciÃ³n docente de normativa.
 
 Modo local con busqueda web sin clave, solo si el operador acepta enviar consultas a un buscador externo:
 
@@ -166,7 +172,7 @@ Las sugerencias curriculares priorizan fuentes oficiales como `boe.es`, `doe.jun
 
 Si el profesor indica Extremadura, se añaden fuentes autonómicas oficiales: Ley 4/2011 de Educación de Extremadura, currículos LOMLOE consolidados de Infantil, Primaria, ESO y Bachillerato, normativa de evaluación y referencias de FP cuando proceda. Si no hay fuente oficial suficiente, la sugerencia queda con confianza baja y requiere verificación manual.
 
-El pipeline genera seis informes diferenciados: diagnóstico inicial, actualización científica, mapeo curricular, validación de fuentes, propuestas de cambio y trazabilidad técnica. Antes de descargar informes, consolidado o recursos, `ReportQualityGate` bloquea claves, rutas internas, placeholders y contenido sin aviso de asistencia de IA.
+El pipeline genera seis informes diferenciados: diagnóstico inicial, actualización científica, mapeo curricular, validación de fuentes, propuestas de cambio y trazabilidad técnica. Cada ejecución crea un `AnalysisRun` con indicadores de LLM, búsqueda, fuentes oficiales, avisos, puntuación de calidad y `academic_score`. La rúbrica académica automática localiza riesgos como ausencia de bibliografía, normativa antigua, falta de fuente oficial, secciones demasiado breves o afirmaciones de actualidad sin evidencia. Esa rúbrica no valida el tema: solo prioriza la revisión docente. Antes de descargar informes, consolidado o recursos, `ReportQualityGate` bloquea claves, rutas internas, placeholders y contenido sin aviso de asistencia de IA.
 
 ## Docker
 
@@ -183,7 +189,7 @@ Servicios:
 - redis: `localhost:6379`
 - minio: `http://localhost:9001`
 
-El contenedor de API ejecuta `alembic upgrade head` al arrancar. El worker usa el mismo entrypoint y después lanza RQ sobre las colas documentales. Docker no debe recibir documentos reales en el contexto de build; `.dockerignore` excluye `storage`, `.venv`, `node_modules` y logs.
+El contenedor de API ejecuta `alembic upgrade head` al arrancar. El worker usa el mismo entrypoint y después lanza RQ sobre las colas documentales. Las imágenes de API y Postgres parten de `alpine:3.20` e instalan Python/PostgreSQL desde `apk` para evitar problemas de arquitectura/SSL observados con algunas imágenes oficiales en Docker Desktop. Docker no debe recibir documentos reales en el contexto de build; `.dockerignore` excluye `storage`, `.venv`, `node_modules` y logs.
 
 Verificacion completa en una maquina con Docker Desktop:
 
@@ -191,7 +197,7 @@ Verificacion completa en una maquina con Docker Desktop:
 .\infra\scripts\verify-docker.ps1
 ```
 
-El repositorio incluye tambien `.github/workflows/ci.yml`, que valida backend, frontend, migraciones Alembic y `docker compose` en runners con Docker. En esta maquina local el script fallara mientras Docker no este en `PATH`; ese fallo es de entorno, no del compose.
+El repositorio incluye tambien `.github/workflows/ci.yml`, que valida backend, frontend, migraciones Alembic y `docker compose` en runners con Docker.
 
 ## Migraciones
 
@@ -201,7 +207,7 @@ python -m uv run alembic revision --autogenerate -m "describe change"
 python -m uv run alembic upgrade head
 ```
 
-La historia Alembic queda linealizada con una revision de merge `0003_merge_report_types_and_file_blobs`; `alembic heads` debe devolver una sola cabeza.
+La historia Alembic queda linealizada con una revision de merge `0003_merge_reports_files`; `alembic heads` debe devolver una sola cabeza. Los IDs de revision se mantienen por debajo de 32 caracteres para que funcionen en PostgreSQL.
 
 ## Workers RQ
 

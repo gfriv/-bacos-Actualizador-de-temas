@@ -27,6 +27,7 @@ import {
   type AIProviderMode,
 } from "@/lib/ai/config";
 import {
+  createAIProviderSession,
   createAIProvider,
   FALLBACK_AI_PROVIDERS,
   listAIProviderDescriptors,
@@ -76,7 +77,7 @@ export function AIProviderSetup({
   const [model, setModel] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [validation, setValidation] = useState<ProviderValidationResult | null>(null);
-  const [loading, setLoading] = useState<"validate" | "models" | "pull" | null>(null);
+  const [loading, setLoading] = useState<"validate" | "models" | "pull" | "save" | null>(null);
   const [pullModel, setPullModel] = useState("qwen2.5:7b-instruct");
   const [pullConfirmed, setPullConfirmed] = useState(false);
 
@@ -212,8 +213,8 @@ export function AIProviderSetup({
     }
   }
 
-  function handleSave() {
-    if (requiresApiKey && !apiKey.trim()) {
+  async function handleSave() {
+    if (requiresApiKey && !apiKey.trim() && hasBackendSession) {
       toast.error("La clave API es obligatoria para este proveedor.");
       return;
     }
@@ -221,8 +222,46 @@ export function AIProviderSetup({
       toast.error("Elige o escribe un modelo antes de guardar.");
       return;
     }
-    setStoredAIConfig(currentConfig);
-    toast.success("Configuracion de IA guardada para esta sesion");
+    const storableConfig: AIProviderConfig = {
+      providerId,
+      mode,
+      baseUrl: baseUrl.trim() || undefined,
+      model: model.trim() || undefined,
+    };
+
+    if (!hasBackendSession) {
+      setStoredAIConfig(storableConfig);
+      toast.warning(
+        requiresApiKey
+          ? "Preferencia guardada sin clave. Entra en la app para crear una sesion segura de proveedor."
+          : "Preferencia de IA guardada para esta sesion.",
+      );
+      return;
+    }
+
+    if (providerActionBlockedReason && providerId === "ollama") {
+      setStoredAIConfig(storableConfig);
+      toast.warning(providerActionBlockedReason);
+      return;
+    }
+
+    if (providerId === "mock") {
+      setStoredAIConfig(storableConfig);
+      toast.success("Configuracion mock guardada para esta sesion");
+      return;
+    }
+
+    setLoading("save");
+    try {
+      const session = await createAIProviderSession(currentConfig);
+      setStoredAIConfig({ ...storableConfig, ...session });
+      setApiKey("");
+      toast.success("Sesion segura de IA creada. La API key no queda guardada en el navegador.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo crear la sesion segura de IA.");
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function handlePullModel() {
@@ -261,7 +300,7 @@ export function AIProviderSetup({
                 API propia u Ollama local
               </CardTitle>
             </div>
-            <HelpTooltip label="La clave se guarda solo en sessionStorage del navegador y viaja al backend en una cabecera efimera para el pipeline. No se persiste en base de datos." />
+            <HelpTooltip label="Con sesion iniciada, la clave se valida en backend y se sustituye por un identificador efimero. No se guarda completa en el navegador ni en base de datos." />
           </div>
         </CardHeader>
         <CardContent className={cn("grid gap-4", compact ? "p-4 pt-0" : undefined)}>
@@ -470,8 +509,12 @@ export function AIProviderSetup({
               <Button type="button" variant="ghost" onClick={clearStoredAIConfig}>
                 Usar mock
               </Button>
-              <Button type="button" onClick={handleSave}>
-                <ShieldCheck className="h-4 w-4" />
+              <Button type="button" onClick={handleSave} disabled={loading !== null}>
+                {loading === "save" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-4 w-4" />
+                )}
                 Guardar sesion
               </Button>
             </div>

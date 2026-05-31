@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_ai_provider_config, get_current_user
@@ -17,6 +17,7 @@ from app.db.models import (
     ConsolidatedDocument,
     Document,
     DocumentSection,
+    EvidenceSource,
     GeneratedResource,
     Project,
     ProjectStatus,
@@ -47,16 +48,21 @@ from app.llm.schemas import (
     ProviderValidationRequest,
     ProviderValidationResult,
 )
+from app.llm.session_store import create_ai_session
 from app.schemas import (
+    AISessionCreate,
+    AISessionRead,
     AnalysisRunRead,
     ConsolidatedDocumentRead,
     DocumentRead,
     DocumentSectionRead,
+    EvidenceSourceRead,
     GeneratedResourceRead,
     LoginRequest,
     MockAnalysisResponse,
     ProjectCreate,
     ProjectRead,
+    ReportQualityRead,
     ReportRead,
     ResearchAnalysisResponse,
     ResourceCreate,
@@ -70,6 +76,7 @@ from app.schemas import (
 from app.services.audit import audit
 from app.services.consolidation import build_consolidated_markdown
 from app.services.demo_seed import get_or_create_demo_user
+from app.services.evidence import build_evidence_sources, link_suggestions_to_evidence
 from app.services.export_compatibility import ensure_exportable_markdown
 from app.services.file_storage import (
     managed_file_response,
@@ -78,8 +85,13 @@ from app.services.file_storage import (
     uses_database_storage,
 )
 from app.services.jobs import QueueUnavailableError, enqueue_rq_job
-from app.services.report_quality_gate import assert_export_quality
-from app.services.research_analysis import build_research_analysis, describe_ai_provider
+from app.services.report_quality_gate import assert_export_quality, evaluate_report_academic_quality
+from app.services.research_analysis import (
+    build_anchor_context,
+    build_research_analysis,
+    collect_curated_curriculum_evidence,
+    describe_ai_provider,
+)
 from app.services.resources import RESOURCE_TITLES, decorate_resource_markdown
 
 router = APIRouter()
@@ -127,6 +139,21 @@ async def list_ai_models(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=safe_provider_error(exc)) from exc
     return {"models": [model.model_dump() for model in models]}
+
+
+@router.post("/ai/sessions", response_model=AISessionRead)
+def create_ai_provider_session(
+    payload: AISessionCreate,
+    current_user: User = Depends(get_current_user),
+) -> AISessionRead:
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher, UserRole.reviewer})
+    try:
+        config = AIProviderConfig.model_validate(payload.config)
+        assert_provider_runtime_allowed(config)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=safe_provider_error(exc)) from exc
+    session_id, expires_at = create_ai_session(config)
+    return AISessionRead(ai_session_id=session_id, expires_at=expires_at)
 
 
 @router.post("/ai/generate-text", response_model=GenerateTextResult)
@@ -277,7 +304,11 @@ def list_documents(
 ) -> list[Document]:
     project = _get_project_for_user(db, project_id, current_user)
     return list(
-        db.scalars(select(Document).where(Document.project_id == project.id).order_by(Document.created_at.desc()))
+        db.scalars(
+            select(Document)
+            .where(Document.project_id == project.id)
+            .order_by(Document.version_index.desc(), Document.created_at.desc())
+        )
     )
 
 
@@ -308,6 +339,15 @@ def list_sections(
     current_user: User = Depends(get_current_user),
 ) -> list[DocumentSection]:
     project = _get_project_for_user(db, project_id, current_user)
+    active_document = _get_active_document(db, project.id)
+    if active_document is not None:
+        return list(
+            db.scalars(
+                select(DocumentSection)
+                .where(DocumentSection.project_id == project.id, DocumentSection.document_id == active_document.id)
+                .order_by(DocumentSection.order_index.asc())
+            )
+        )
     return list(
         db.scalars(
             select(DocumentSection)
@@ -376,12 +416,20 @@ async def upload_document(
         else str(target)
     )
 
+    _mark_project_outputs_stale(db, project.id)
+    version_index = 1 + (db.scalar(select(func.count(Document.id)).where(Document.project_id == project.id)) or 0)
+    for existing_document in db.scalars(select(Document).where(Document.project_id == project.id, Document.is_active.is_(True))):
+        existing_document.is_active = False
+
     document = Document(
         project_id=project.id,
         original_filename=original_filename,
         file_path=file_path,
         file_type=suffix.removeprefix("."),
         extracted_text=extracted_text,
+        version_index=version_index,
+        is_active=True,
+        extraction_metadata=_build_extraction_metadata(suffix, extracted_text),
     )
     db.add(document)
     db.flush()
@@ -390,6 +438,7 @@ async def upload_document(
         db.add(
             DocumentSection(
                 project_id=project.id,
+                document_id=document.id,
                 title=parsed.title,
                 order_index=parsed.order_index,
                 content=parsed.content,
@@ -411,7 +460,7 @@ async def run_research_analysis(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     ai_config: AIProviderConfig | None = Depends(get_ai_provider_config),
-) -> dict[str, list[Report | Suggestion]]:
+) -> dict[str, object]:
     return await _run_research_analysis(project_id, db, current_user, ai_config)
 
 
@@ -476,7 +525,9 @@ def queue_consolidation(
 ) -> AnalysisRun:
     project = _get_project_for_user(db, project_id, current_user)
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
-    suggestions = list(db.scalars(select(Suggestion).where(Suggestion.project_id == project.id)))
+    suggestions = list(
+        db.scalars(select(Suggestion).where(Suggestion.project_id == project.id, Suggestion.is_stale.is_(False)))
+    )
     approved_count = sum(
         1 for suggestion in suggestions if suggestion.status in {SuggestionStatus.approved, SuggestionStatus.edited}
     )
@@ -509,7 +560,7 @@ def queue_resource_generation(
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
     consolidated = db.scalar(
         select(ConsolidatedDocument)
-        .where(ConsolidatedDocument.project_id == project.id)
+        .where(ConsolidatedDocument.project_id == project.id, ConsolidatedDocument.is_stale.is_(False))
         .order_by(ConsolidatedDocument.created_at.desc())
     )
     if consolidated is None:
@@ -547,20 +598,38 @@ async def _run_research_analysis(
     db: Session,
     current_user: User,
     ai_config: AIProviderConfig | None = None,
-) -> dict[str, list[Report | Suggestion]]:
+) -> dict[str, object]:
     project = _get_project_for_user(db, project_id, current_user)
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
-    sections = list(
-        db.scalars(
-            select(DocumentSection)
-            .where(DocumentSection.project_id == project.id)
-            .order_by(DocumentSection.order_index.asc())
-        )
-    )
+    active_document = _get_active_document(db, project.id)
+    section_query = select(DocumentSection).where(DocumentSection.project_id == project.id)
+    if active_document is not None:
+        section_query = section_query.where(DocumentSection.document_id == active_document.id)
+    sections = list(db.scalars(section_query.order_by(DocumentSection.order_index.asc())))
     if not sections:
         raise HTTPException(status_code=400, detail="Sube un documento antes de generar informes.")
 
+    _mark_project_outputs_stale(db, project.id)
+    provider_name, model_name = describe_ai_provider(ai_config)
+    analysis_run = AnalysisRun(
+        project_id=project.id,
+        run_type="research",
+        status=AnalysisRunStatus.running,
+        model_provider=provider_name,
+        model_name=model_name,
+        started_at=datetime.now(UTC),
+    )
+    db.add(analysis_run)
+    db.flush()
+
     analysis = await build_research_analysis(project, sections, provider_config=ai_config)
+    for item in [*analysis.reports, *analysis.suggestions]:
+        item.analysis_run_id = analysis_run.id
+    evidence_sources = build_evidence_sources(
+        project_id=project.id,
+        analysis_run_id=analysis_run.id,
+        results=analysis.evidence,
+    )
     for report in analysis.reports:
         try:
             assert_export_quality(
@@ -571,7 +640,26 @@ async def _run_research_analysis(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-    db.add_all([*analysis.reports, *analysis.suggestions])
+    db.add_all([*analysis.reports, *analysis.suggestions, *evidence_sources])
+    db.flush()
+    link_suggestions_to_evidence(db, suggestions=analysis.suggestions, evidence_sources=evidence_sources)
+    quality_scores = [
+        evaluate_report_academic_quality(
+            report.content_markdown,
+            report_type=report.report_type.value,
+            evidence_count=len(analysis.evidence),
+            official_evidence_count=sum(1 for source in evidence_sources if source.source_kind == "official"),
+            llm_degraded=analysis.llm_degraded,
+        ).score
+        for report in analysis.reports
+    ]
+    analysis_run.status = AnalysisRunStatus.completed
+    analysis_run.completed_at = datetime.now(UTC)
+    analysis_run.llm_used = analysis.llm_used
+    analysis_run.web_search_used = analysis.web_search_used
+    analysis_run.official_sources_used = analysis.official_sources_used
+    analysis_run.quality_score = round(sum(quality_scores) / len(quality_scores)) if quality_scores else None
+    analysis_run.warnings_json = analysis.warnings or []
     project.status = ProjectStatus.under_review
     audit(
         db,
@@ -583,11 +671,18 @@ async def _run_research_analysis(
         web_search_provider=settings.web_search_provider,
     )
     db.commit()
-    for item in [*analysis.reports, *analysis.suggestions]:
+    for item in [analysis_run, *analysis.reports, *analysis.suggestions]:
         db.refresh(item)
     return {
         "reports": analysis.reports,
         "suggestions": analysis.suggestions,
+        "analysis_run_id": analysis_run.id,
+        "llm_used": analysis.llm_used,
+        "web_search_used": analysis.web_search_used,
+        "official_sources_used": analysis.official_sources_used,
+        "quality_score": analysis_run.quality_score,
+        "academic_score": analysis.academic_score,
+        "warnings": analysis.warnings or [],
     }
 
 
@@ -601,6 +696,12 @@ def create_suggestion(
     project = _get_project_for_user(db, project_id, current_user)
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
     suggestion = Suggestion(project_id=project.id, status=SuggestionStatus.pending, **payload.model_dump())
+    if suggestion.section_id:
+        section = db.get(DocumentSection, suggestion.section_id)
+        if section is not None:
+            if section.project_id != project.id:
+                raise HTTPException(status_code=400, detail="La seccion no pertenece al proyecto.")
+            suggestion.anchor_context = build_anchor_context(section.content, suggestion.original_fragment)
     db.add(suggestion)
     db.flush()
     audit(db, "suggestion_created", user_id=current_user.id, project_id=project.id, suggestion_id=suggestion.id)
@@ -617,7 +718,11 @@ def list_suggestions(
 ) -> list[Suggestion]:
     project = _get_project_for_user(db, project_id, current_user)
     return list(
-        db.scalars(select(Suggestion).where(Suggestion.project_id == project.id).order_by(Suggestion.created_at.asc()))
+        db.scalars(
+            select(Suggestion)
+            .where(Suggestion.project_id == project.id, Suggestion.is_stale.is_(False))
+            .order_by(Suggestion.created_at.asc())
+        )
     )
 
 
@@ -659,7 +764,81 @@ def list_reports(
     current_user: User = Depends(get_current_user),
 ) -> list[Report]:
     project = _get_project_for_user(db, project_id, current_user)
-    return list(db.scalars(select(Report).where(Report.project_id == project.id).order_by(Report.created_at.asc())))
+    return list(
+        db.scalars(
+            select(Report)
+            .where(Report.project_id == project.id, Report.is_stale.is_(False))
+            .order_by(Report.created_at.asc())
+        )
+    )
+
+
+@router.get("/projects/{project_id}/evidence", response_model=list[EvidenceSourceRead])
+def list_project_evidence(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[EvidenceSource]:
+    project = _get_project_for_user(db, project_id, current_user)
+    return list(
+        db.scalars(
+            select(EvidenceSource)
+            .where(EvidenceSource.project_id == project.id)
+            .order_by(EvidenceSource.retrieved_at.desc())
+        )
+    )
+
+
+@router.post("/projects/{project_id}/evidence/refresh-official", response_model=list[EvidenceSourceRead])
+async def refresh_official_evidence(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[EvidenceSource]:
+    project = _get_project_for_user(db, project_id, current_user)
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher})
+    results = await collect_curated_curriculum_evidence(project)
+    sources = build_evidence_sources(project_id=project.id, analysis_run_id=None, results=results)
+    db.add_all(sources)
+    audit(db, "official_evidence_refreshed", user_id=current_user.id, project_id=project.id, evidence=len(sources))
+    db.commit()
+    for source in sources:
+        db.refresh(source)
+    return sources
+
+
+@router.get("/reports/{report_id}/quality", response_model=ReportQualityRead)
+def get_report_quality(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Informe no encontrado.")
+    _get_project_for_user(db, report.project_id, current_user)
+    evidence_count = db.scalar(select(func.count(EvidenceSource.id)).where(EvidenceSource.project_id == report.project_id)) or 0
+    official_count = (
+        db.scalar(
+            select(func.count(EvidenceSource.id)).where(
+                EvidenceSource.project_id == report.project_id,
+                EvidenceSource.source_kind == "official",
+            )
+        )
+        or 0
+    )
+    quality = evaluate_report_academic_quality(
+        report.content_markdown,
+        report_type=report.report_type.value,
+        evidence_count=evidence_count,
+        official_evidence_count=official_count,
+    )
+    return {
+        "ok": quality.ok,
+        "score": quality.score,
+        "issues": [issue.__dict__ for issue in quality.issues],
+        "criteria": quality.criteria or {},
+    }
 
 
 @router.get("/reports/{report_id}/download")
@@ -709,8 +888,14 @@ def consolidate_project(
 ) -> ConsolidatedDocument:
     project = _get_project_for_user(db, project_id, current_user)
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
-    sections = list(db.scalars(select(DocumentSection).where(DocumentSection.project_id == project.id)))
-    suggestions = list(db.scalars(select(Suggestion).where(Suggestion.project_id == project.id)))
+    active_document = _get_active_document(db, project.id)
+    section_query = select(DocumentSection).where(DocumentSection.project_id == project.id)
+    if active_document is not None:
+        section_query = section_query.where(DocumentSection.document_id == active_document.id)
+    sections = list(db.scalars(section_query.order_by(DocumentSection.order_index.asc())))
+    suggestions = list(
+        db.scalars(select(Suggestion).where(Suggestion.project_id == project.id, Suggestion.is_stale.is_(False)))
+    )
     approved_count = sum(
         1 for suggestion in suggestions if suggestion.status in {SuggestionStatus.approved, SuggestionStatus.edited}
     )
@@ -759,7 +944,7 @@ def get_consolidated_document(
     project = _get_project_for_user(db, project_id, current_user)
     consolidated = db.scalar(
         select(ConsolidatedDocument)
-        .where(ConsolidatedDocument.project_id == project.id)
+        .where(ConsolidatedDocument.project_id == project.id, ConsolidatedDocument.is_stale.is_(False))
         .order_by(ConsolidatedDocument.created_at.desc())
     )
     if consolidated is None:
@@ -776,7 +961,7 @@ def download_consolidated_document(
     project = _get_project_for_user(db, project_id, current_user)
     consolidated = db.scalar(
         select(ConsolidatedDocument)
-        .where(ConsolidatedDocument.project_id == project.id)
+        .where(ConsolidatedDocument.project_id == project.id, ConsolidatedDocument.is_stale.is_(False))
         .order_by(ConsolidatedDocument.created_at.desc())
     )
     if consolidated is None or consolidated.docx_path is None:
@@ -840,7 +1025,7 @@ async def generate_resource(
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
     consolidated = db.scalar(
         select(ConsolidatedDocument)
-        .where(ConsolidatedDocument.project_id == project.id)
+        .where(ConsolidatedDocument.project_id == project.id, ConsolidatedDocument.is_stale.is_(False))
         .order_by(ConsolidatedDocument.created_at.desc())
     )
     if consolidated is None:
@@ -899,7 +1084,7 @@ def list_resources(
     return list(
         db.scalars(
             select(GeneratedResource)
-            .where(GeneratedResource.project_id == project.id)
+            .where(GeneratedResource.project_id == project.id, GeneratedResource.is_stale.is_(False))
             .order_by(GeneratedResource.created_at.desc())
         )
     )
@@ -1014,3 +1199,44 @@ def _get_project_for_user(db: Session, project_id: int, user: User) -> Project:
     if user.role.value != "admin" and project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este proyecto.")
     return project
+
+
+def _get_active_document(db: Session, project_id: int) -> Document | None:
+    return db.scalar(
+        select(Document)
+        .where(Document.project_id == project_id, Document.is_active.is_(True))
+        .order_by(Document.created_at.desc())
+    )
+
+
+def _mark_project_outputs_stale(db: Session, project_id: int) -> None:
+    for report in db.scalars(select(Report).where(Report.project_id == project_id, Report.is_stale.is_(False))):
+        report.is_stale = True
+    for suggestion in db.scalars(
+        select(Suggestion).where(Suggestion.project_id == project_id, Suggestion.is_stale.is_(False))
+    ):
+        suggestion.is_stale = True
+    for consolidated in db.scalars(
+        select(ConsolidatedDocument).where(
+            ConsolidatedDocument.project_id == project_id,
+            ConsolidatedDocument.is_stale.is_(False),
+        )
+    ):
+        consolidated.is_stale = True
+    for resource in db.scalars(
+        select(GeneratedResource).where(
+            GeneratedResource.project_id == project_id,
+            GeneratedResource.is_stale.is_(False),
+        )
+    ):
+        resource.is_stale = True
+
+
+def _build_extraction_metadata(suffix: str, extracted_text: str) -> dict[str, object]:
+    extractor = "docx" if suffix == ".docx" else "pdf_text"
+    return {
+        "extractor": extractor,
+        "characters": len(extracted_text),
+        "word_count": len(extracted_text.split()),
+        "warnings": [],
+    }

@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    build:
+      context: ..
+      dockerfile: infra/docker/postgres.Dockerfile
     environment:
       POSTGRES_USER: abacos
       POSTGRES_PASSWORD: abacos
@@ -69,6 +71,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      RUN_ALEMBIC_MIGRATIONS: "false"
       UPLOAD_DIR: /app/storage/uploads
       GENERATED_DIR: /app/storage/generated
     volumes:

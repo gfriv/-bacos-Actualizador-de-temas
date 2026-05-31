@@ -243,16 +243,65 @@ def test_research_analysis_creates_reports_and_suggestions(
     response = client.post(f"/api/projects/{project_id}/analysis/research", headers=auth_headers)
     assert response.status_code == 200
     assert len(response.json()["reports"]) == 6
-    assert len(response.json()["suggestions"]) == 2
+    assert len(response.json()["suggestions"]) >= 2
+    assert response.json()["academic_score"] is not None
 
     reports = client.get(f"/api/projects/{project_id}/reports", headers=auth_headers)
     suggestions = client.get(f"/api/projects/{project_id}/suggestions", headers=auth_headers)
     assert len(reports.json()) == 6
-    assert len(suggestions.json()) == 2
+    assert len(suggestions.json()) >= 2
     source_report = next(report for report in reports.json() if report["report_type"] == "source_validation")
     report_download = client.get(f"/api/reports/{source_report['id']}/download", headers=auth_headers)
     assert report_download.status_code == 200
     assert b"Centro de Formaci" in report_download.content
+
+    quality = client.get(f"/api/reports/{source_report['id']}/quality", headers=auth_headers)
+    assert quality.status_code == 200
+    assert quality.json()["score"] >= 0
+    assert "criteria" in quality.json()
+
+
+def test_uploading_new_document_marks_previous_outputs_stale(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    project_id = create_project(client, auth_headers)
+    first_upload = client.post(
+        f"/api/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={
+            "file": (
+                "tema-v1.docx",
+                make_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+    assert first_upload.status_code == 201
+    analysis = client.post(f"/api/projects/{project_id}/analysis/research", headers=auth_headers)
+    assert analysis.status_code == 200
+    assert client.get(f"/api/projects/{project_id}/reports", headers=auth_headers).json()
+
+    second_upload = client.post(
+        f"/api/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={
+            "file": (
+                "tema-v2.docx",
+                make_complex_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert second_upload.status_code == 201
+    documents = client.get(f"/api/projects/{project_id}/documents", headers=auth_headers).json()
+    assert documents[0]["version_index"] == 2
+    assert documents[0]["is_active"] is True
+    assert documents[1]["is_active"] is False
+    assert client.get(f"/api/projects/{project_id}/reports", headers=auth_headers).json() == []
+    assert client.get(f"/api/projects/{project_id}/suggestions", headers=auth_headers).json() == []
+    sections = client.get(f"/api/projects/{project_id}/sections", headers=auth_headers).json()
+    assert {section["document_id"] for section in sections} == {second_upload.json()["id"]}
 
 
 def test_consolidation_rejects_pending_only(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -283,6 +332,46 @@ def test_consolidation_rejects_pending_only(client: TestClient, auth_headers: di
     response = client.post(f"/api/projects/{project_id}/consolidate", headers=auth_headers)
     assert response.status_code == 400
     assert "No hay sugerencias aprobadas" in response.json()["detail"]
+
+
+def test_consolidation_skips_approved_suggestion_when_anchor_fails(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    project_id = create_project(client, auth_headers)
+    client.post(
+        f"/api/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={
+            "file": (
+                "tema.docx",
+                make_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+    section_id = client.get(f"/api/projects/{project_id}/sections", headers=auth_headers).json()[0]["id"]
+    suggestion = client.post(
+        f"/api/projects/{project_id}/suggestions",
+        headers=auth_headers,
+        json={
+            "section_id": section_id,
+            "suggestion_type": "scientific_update",
+            "original_fragment": "Fragmento que no existe en el documento",
+            "proposed_change": "CAMBIO QUE NO DEBE APARECER",
+            "justification": "Evita integrar cambios sin anclaje documental.",
+            "source_reference": "MockProvider",
+            "confidence_level": "medium",
+        },
+    ).json()
+    client.patch(f"/api/suggestions/{suggestion['id']}", headers=auth_headers, json={"status": "approved"})
+
+    consolidated = client.post(f"/api/projects/{project_id}/consolidate", headers=auth_headers)
+
+    assert consolidated.status_code == 200
+    assert "CAMBIO QUE NO DEBE APARECER" not in consolidated.json()["content_markdown"]
+    assert "no integrada" in consolidated.json()["content_markdown"]
+    reviewed = client.get(f"/api/projects/{project_id}/suggestions", headers=auth_headers).json()[0]
+    assert reviewed["anchor_status"] == "failed"
 
 
 def test_consolidation_uses_approved_suggestions_and_generates_resource(

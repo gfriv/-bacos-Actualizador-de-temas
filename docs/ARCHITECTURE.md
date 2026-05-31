@@ -45,13 +45,14 @@ The provider choice is centralized in `ModelRouter`, not scattered across UI com
 
 Flow:
 
-1. UI stores the selected provider/model/key in browser `sessionStorage`.
-2. Pipeline calls attach `X-Abacos-AI-Config`.
-3. FastAPI validates the header as `AIProviderConfig`.
-4. `ModelRouter` instantiates Mock, OpenAI-compatible, Gemini, Anthropic or Ollama provider.
-5. Suggestions remain pending until teacher review.
+1. UI validates the selected provider/model/key through authenticated backend endpoints.
+2. FastAPI creates an in-memory `X-Abacos-AI-Session` token with TTL.
+3. The browser stores provider/model/session id, never the full API key.
+4. Pipeline calls attach `X-Abacos-AI-Session`; legacy `X-Abacos-AI-Config` remains as local fallback.
+5. `ModelRouter` instantiates Mock, OpenAI-compatible, Gemini, Anthropic or Ollama provider.
+6. Suggestions remain pending until teacher review.
 
-Direct text-generation endpoints are authenticated. Provider validation/model listing can be used from the setup screen before login, but no generated educational content is persisted without a user/project context.
+Direct text-generation endpoints are authenticated. Provider validation/model listing require a backend session to avoid exposing the API as a public proxy. No generated educational content is persisted without a user/project context.
 
 ## Deployment Boundary
 
@@ -75,7 +76,7 @@ Queued jobs do not accept BYOK headers because API keys must not be serialized i
 - legal framework supplied by the teacher;
 - detected section concepts.
 
-For curricular analysis, it prioritizes official domains such as BOE, DOE/Junta de Extremadura, Educarex, Educagob, Ministerio de Educación and EU legal sources. The same flow supports preparation for Spanish teaching exams, including Infantil, Primaria, Secundaria and FP, by adding official BOE references for the relevant stage and the state teaching-entry regulation when applicable. When the project mentions Extremadura, the curated evidence layer also adds Ley 4/2011 de Educación de Extremadura, consolidated Extremadura LOMLOE curriculum decrees by stage, evaluation rules and FP references where applicable. Search results are not applied automatically; they become traceable evidence in reports and `Suggestion.source_reference`.
+For curricular analysis, it prioritizes official domains such as BOE, DOE/Junta de Extremadura, Educarex, Educagob, Ministerio de Educación and EU legal sources. The same flow supports preparation for Spanish teaching exams, including Infantil, Primaria, Secundaria and FP, by adding official BOE references for the relevant stage and the state teaching-entry regulation when applicable. When the project mentions Extremadura, the curated evidence layer also adds Ley 4/2011 de Educación de Extremadura, consolidated Extremadura LOMLOE curriculum decrees by stage, evaluation rules and FP references where applicable. Search results are not applied automatically; they become traceable `EvidenceSource` rows, optional `SuggestionEvidence` links, report references and `Suggestion.source_reference`.
 
 Providers are selected with `WEB_SEARCH_PROVIDER`: `disabled`, `duckduckgo`, `tavily` or `brave`. External search requires `EXTERNAL_WEB_SEARCH_ENABLED=true`; the default is disabled.
 
@@ -90,4 +91,14 @@ The research pipeline now produces six report types:
 - `change_proposal`
 - `technical_traceability`
 
-Every exportable report, consolidated document and generated resource includes an AI assistance notice, generation metadata and the Ábacos corporate footer. `ReportQualityGate` blocks exports that contain likely API keys, internal storage paths, unresolved placeholders or missing required traceability.
+Every exportable report, consolidated document and generated resource includes an AI assistance notice, generation metadata and the Ábacos corporate footer. `ReportQualityGate` blocks exports that contain likely API keys, internal storage paths, unresolved placeholders or missing required traceability. Academic quality is also exposed through `/api/reports/{report_id}/quality` with score, criteria and issues.
+
+The research service also computes an `academic_score` with an automatic rubric. It flags missing bibliography, incomplete opposition framework, absent official curriculum evidence, outdated legal references, short sections and scientific/currentness claims without supporting evidence. The score is a triage signal for the teacher; it never authorizes automatic consolidation.
+
+## Document Versions And Stale Outputs
+
+Each uploaded document receives a `version_index` and an `is_active` flag. Uploading a new version marks previous reports, suggestions, consolidated documents and resources as stale. List endpoints hide stale outputs so the teacher cannot consolidate recommendations generated from an old document. The old data remains in the database for audit and traceability.
+
+Consolidation uses only non-stale suggestions in `approved` or `edited` state. If the stored `original_fragment` no longer matches the active section context, the suggestion is marked with `anchor_status=failed` and is not inserted into the final document.
+
+Successful integrations use a whitespace-tolerant anchor match and append internal change notes with before/after snippets so the generated DOCX remains traceable.

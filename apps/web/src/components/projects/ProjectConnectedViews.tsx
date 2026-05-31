@@ -8,9 +8,13 @@ import {
   BookOpenCheck,
   CheckCircle2,
   ClipboardCheck,
+  Gauge,
   FileCheck2,
   FileText,
   Layers3,
+  Link2,
+  RefreshCw,
+  ShieldCheck,
   Sparkles,
   UploadCloud,
   WandSparkles,
@@ -33,20 +37,25 @@ import {
   generateResource,
   getConsolidated,
   getProject,
+  getReportQuality,
+  listEvidence,
   listDocuments,
   listReports,
   listResources,
   listSections,
   listSuggestions,
+  refreshOfficialEvidence,
   reviewSuggestion,
   runResearchAnalysis,
   uploadDocument,
   type ConsolidatedDocument,
   type DocumentRecord,
   type DocumentSection,
+  type EvidenceSource,
   type GeneratedResource,
   type Project,
   type Report,
+  type ReportQuality,
   type Suggestion,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -56,6 +65,8 @@ type WorkspaceData = {
   documents: DocumentRecord[];
   sections: DocumentSection[];
   reports: Report[];
+  evidenceSources: EvidenceSource[];
+  reportQualities: Record<number, ReportQuality>;
   suggestions: Suggestion[];
   consolidated: ConsolidatedDocument | null;
   resources: GeneratedResource[];
@@ -76,6 +87,8 @@ const emptyWorkspace: WorkspaceData = {
   documents: [],
   sections: [],
   reports: [],
+  evidenceSources: [],
+  reportQualities: {},
   suggestions: [],
   consolidated: null,
   resources: [],
@@ -98,7 +111,16 @@ function useProjectWorkspace(projectId: string) {
     setLoading(true);
     setError(null);
     try {
-      const [project, documents, sections, reports, suggestions, consolidated, resources] =
+      const [
+        project,
+        documents,
+        sections,
+        reports,
+        suggestions,
+        consolidated,
+        resources,
+        evidenceSources,
+      ] =
         await Promise.all([
           getProject(projectId),
           listDocuments(projectId),
@@ -107,9 +129,29 @@ function useProjectWorkspace(projectId: string) {
           listSuggestions(projectId),
           getConsolidated(projectId).catch(() => null),
           listResources(projectId).catch(() => []),
+          listEvidence(projectId).catch(() => []),
         ]);
+      const qualityEntries = await Promise.all(
+        reports.map(async (report) => {
+          const quality = await getReportQuality(report.id).catch(() => null);
+          return [report.id, quality] as const;
+        }),
+      );
+      const reportQualities = Object.fromEntries(
+        qualityEntries.filter((entry): entry is readonly [number, ReportQuality] => Boolean(entry[1])),
+      );
 
-      setData({ project, documents, sections, reports, suggestions, consolidated, resources });
+      setData({
+        project,
+        documents,
+        sections,
+        reports,
+        evidenceSources,
+        reportQualities,
+        suggestions,
+        consolidated,
+        resources,
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "No se pudo cargar el proyecto");
     } finally {
@@ -230,6 +272,8 @@ export function ProjectDocumentClient({ projectId }: { projectId: string }) {
             <div className="grid gap-4">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="blue">{document.file_type.toUpperCase()}</Badge>
+                <Badge variant="outline">VersiÃ³n {document.version_index ?? 1}</Badge>
+                {document.is_active === false ? <Badge variant="gray">No activa</Badge> : null}
                 <Badge variant="outline">{document.extracted_text.length.toLocaleString("es-ES")} caracteres</Badge>
                 <Badge variant="outline">{workspace.sections.length} secciones</Badge>
               </div>
@@ -339,6 +383,21 @@ export function ProjectReportClient({
 }) {
   const workspace = useProjectWorkspace(projectId);
   const report = workspace.reports.find((item) => item.report_type === reportType);
+  const quality = report ? workspace.reportQualities[report.id] : null;
+  const [refreshingEvidence, setRefreshingEvidence] = useState(false);
+
+  async function handleRefreshEvidence() {
+    setRefreshingEvidence(true);
+    try {
+      await refreshOfficialEvidence(projectId);
+      await workspace.reload();
+      toast.success("Fuentes oficiales actualizadas para el proyecto");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudieron actualizar las fuentes oficiales");
+    } finally {
+      setRefreshingEvidence(false);
+    }
+  }
   const title = reportType === "scientific_update" ? "Informe científico" : "Informe curricular";
   const copy =
     reportType === "scientific_update"
@@ -364,13 +423,21 @@ export function ProjectReportClient({
           </SectionCard>
         )}
       </div>
-      <SectionCard title={title} description="Criterios de uso docente">
-        <div className="grid gap-3 text-sm leading-6 text-abacos-gray">
+      <div className="grid gap-4">
+        <SectionCard title={title} description="Criterios de uso docente">
+          <div className="grid gap-3 text-sm leading-6 text-abacos-gray">
           <RuleLine icon={CheckCircle2} text="No sustituye la revisión profesional del profesor." />
           <RuleLine icon={FileText} text="No debe inventar referencias ni normativa." />
           <RuleLine icon={ClipboardCheck} text="Toda sugerencia derivada debe revisarse individualmente." />
-        </div>
-      </SectionCard>
+          </div>
+        </SectionCard>
+        <ReportQualityPanel quality={quality} />
+        <EvidencePanel
+          sources={workspace.evidenceSources}
+          refreshing={refreshingEvidence}
+          onRefresh={handleRefreshEvidence}
+        />
+      </div>
     </div>
   );
 }
@@ -429,6 +496,7 @@ export function ProjectReviewClient({ projectId }: { projectId: string }) {
               confidence={suggestion.confidence_level}
               status={suggestion.status}
               suggestionType={suggestion.suggestion_type}
+              anchorStatus={suggestion.anchor_status}
               teacherNotes={suggestion.teacher_notes}
               reviewedAt={suggestion.reviewed_at}
               onReview={handleReview}
@@ -801,6 +869,108 @@ function ReviewControlPanel({
           </div>
         </div>
       </div>
+    </SectionCard>
+  );
+}
+
+function ReportQualityPanel({ quality }: { quality: ReportQuality | null | undefined }) {
+  if (!quality) {
+    return (
+      <SectionCard title="Calidad del informe" description="La puerta de calidad se calcularÃ¡ al generar el informe.">
+        <p className="text-sm leading-6 text-abacos-gray">
+          AÃºn no hay mÃ©trica disponible para este informe.
+        </p>
+      </SectionCard>
+    );
+  }
+
+  const scoreTone = quality.score >= 80 ? "green" : quality.score >= 60 ? "yellow" : "default";
+
+  return (
+    <SectionCard title="Calidad del informe" description="Indicadores automÃ¡ticos para orientar la revisiÃ³n docente.">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-md bg-abacos-red-soft text-abacos-red-dark">
+            <Gauge className="h-5 w-5" aria-hidden />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-abacos-black">{quality.score}/100</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-abacos-gray">
+              puntuaciÃ³n tÃ©cnica
+            </p>
+          </div>
+        </div>
+        <Badge variant={scoreTone}>{quality.ok ? "Apto" : "Revisar"}</Badge>
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-abacos-light">
+        <div className="h-full bg-abacos-red" style={{ width: `${Math.min(100, quality.score)}%` }} />
+      </div>
+      {quality.issues.length > 0 ? (
+        <div className="mt-4 grid gap-2">
+          {quality.issues.slice(0, 3).map((issue) => (
+            <div key={issue.code} className="rounded-md bg-yellow-50 p-3 text-xs leading-5 text-abacos-black">
+              <span className="font-semibold">{issue.severity.toUpperCase()}:</span> {issue.message}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm leading-6 text-abacos-gray">
+          Sin incidencias crÃ­ticas detectadas. MantÃ©n la revisiÃ³n humana antes de consolidar.
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
+function EvidencePanel({
+  sources,
+  refreshing,
+  onRefresh,
+}: {
+  sources: EvidenceSource[];
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const officialCount = sources.filter((source) => source.source_kind === "official").length;
+
+  return (
+    <SectionCard title="Fuentes trazables" description="Referencias recuperadas para contrastar informe y sugerencias.">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="blue">{sources.length} fuentes</Badge>
+        <Badge variant={officialCount > 0 ? "green" : "yellow"}>{officialCount} oficiales</Badge>
+      </div>
+      <div className="mt-4 grid gap-3">
+        {sources.slice(0, 4).map((source) => (
+          <a
+            key={source.id}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-border bg-white p-3 text-sm transition hover:border-abacos-red-soft hover:bg-abacos-red-soft"
+          >
+            <div className="flex items-start gap-2">
+              {source.source_kind === "official" ? (
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-abacos-green" aria-hidden />
+              ) : (
+                <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-abacos-blue" aria-hidden />
+              )}
+              <div>
+                <p className="font-semibold text-abacos-black">{source.title}</p>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-abacos-gray">{source.snippet}</p>
+              </div>
+            </div>
+          </a>
+        ))}
+        {sources.length === 0 ? (
+          <p className="text-sm leading-6 text-abacos-gray">
+            No hay fuentes guardadas todavÃ­a. Puedes regenerar el informe o actualizar fuentes oficiales.
+          </p>
+        ) : null}
+      </div>
+      <Button className="mt-4 w-full" variant="outline" onClick={onRefresh} disabled={refreshing}>
+        <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} aria-hidden />
+        Actualizar oficiales
+      </Button>
     </SectionCard>
   );
 }

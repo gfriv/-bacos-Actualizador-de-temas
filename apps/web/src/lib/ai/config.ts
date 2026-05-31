@@ -14,6 +14,8 @@ export type AIProviderConfig = {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  aiSessionId?: string;
+  expiresAt?: string;
 };
 
 export type BackendAIProviderConfig = {
@@ -52,7 +54,17 @@ export function getStoredAIConfig(): AIProviderConfig | null {
   const raw = window.sessionStorage.getItem(AI_CONFIG_STORAGE_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AIProviderConfig;
+    const parsed = JSON.parse(raw) as AIProviderConfig;
+    if (parsed.apiKey) {
+      const sanitized = { ...parsed, apiKey: undefined };
+      window.sessionStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(sanitized));
+      return sanitized;
+    }
+    if (parsed.expiresAt && Date.parse(parsed.expiresAt) <= Date.now()) {
+      window.sessionStorage.removeItem(AI_CONFIG_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     window.sessionStorage.removeItem(AI_CONFIG_STORAGE_KEY);
     return null;
@@ -61,7 +73,9 @@ export function getStoredAIConfig(): AIProviderConfig | null {
 
 export function setStoredAIConfig(config: AIProviderConfig): void {
   if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(config));
+  const safeConfig = { ...config };
+  delete safeConfig.apiKey;
+  window.sessionStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(safeConfig));
   window.dispatchEvent(new Event(AI_CONFIG_CHANGED_EVENT));
 }
 
@@ -74,7 +88,13 @@ export function clearStoredAIConfig(): void {
 export function getAIConfigHeader(): string | null {
   const config = getStoredAIConfig();
   if (!config) return null;
+  if (config.aiSessionId) return null;
   return encodeBase64Url(JSON.stringify(toBackendAIConfig(config)));
+}
+
+export function getAISessionHeader(): string | null {
+  const config = getStoredAIConfig();
+  return config?.aiSessionId ?? null;
 }
 
 export function describeAIConfig(config: AIProviderConfig | null): string {

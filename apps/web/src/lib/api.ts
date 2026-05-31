@@ -1,5 +1,5 @@
 import type { StatusKey } from "@/components/ui/StatusBadge";
-import { getAIConfigHeader } from "@/lib/ai/config";
+import { getAIConfigHeader, getAISessionHeader } from "@/lib/ai/config";
 import {
   createDemoResource,
   demoConsolidated,
@@ -37,12 +37,16 @@ export type DocumentRecord = {
   original_filename: string;
   file_type: string;
   extracted_text: string;
+  version_index?: number;
+  is_active?: boolean;
+  extraction_metadata?: Record<string, unknown> | null;
   created_at: string;
 };
 
 export type DocumentSection = {
   id: number;
   project_id: number;
+  document_id?: number | null;
   title: string;
   order_index: number;
   content: string;
@@ -62,6 +66,8 @@ export type Report = {
     | "technical_traceability";
   title: string;
   content_markdown: string;
+  analysis_run_id?: number | null;
+  is_stale?: boolean;
   created_at: string;
 };
 
@@ -81,6 +87,9 @@ export type Suggestion = {
   confidence_level: "low" | "medium" | "high" | string;
   status: StatusKey;
   teacher_notes: string | null;
+  analysis_run_id?: number | null;
+  anchor_status?: string | null;
+  is_stale?: boolean;
   created_at: string;
   reviewed_at: string | null;
 };
@@ -89,6 +98,7 @@ export type ConsolidatedDocument = {
   id: number;
   project_id: number;
   content_markdown: string;
+  is_stale?: boolean;
   created_at: string;
 };
 
@@ -98,7 +108,36 @@ export type GeneratedResource = {
   resource_type: string;
   title: string;
   content_markdown: string;
+  is_stale?: boolean;
   created_at: string;
+};
+
+export type EvidenceSource = {
+  id: number;
+  project_id: number;
+  analysis_run_id: number | null;
+  title: string;
+  url: string;
+  snippet: string;
+  source_kind: "official" | "scientific" | "web" | "unknown" | string;
+  provider: string;
+  validation_status: string;
+  quality_score: number;
+  rationale: string | null;
+  retrieved_at: string;
+};
+
+export type ReportQualityIssue = {
+  code: string;
+  severity: "low" | "medium" | "high" | string;
+  message: string;
+};
+
+export type ReportQuality = {
+  ok: boolean;
+  score: number;
+  issues: ReportQualityIssue[];
+  criteria: Record<string, number | boolean | string>;
 };
 
 export type ProjectCreatePayload = {
@@ -137,8 +176,11 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers);
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  const aiSessionHeader = getAISessionHeader();
   const aiConfigHeader = getAIConfigHeader();
-  if (aiConfigHeader && shouldAttachAIConfig(path, init.method)) {
+  if (aiSessionHeader && shouldAttachAIConfig(path, init.method)) {
+    headers.set("X-Abacos-AI-Session", aiSessionHeader);
+  } else if (aiConfigHeader && shouldAttachAIConfig(path, init.method)) {
     headers.set("X-Abacos-AI-Config", aiConfigHeader);
   }
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -250,6 +292,9 @@ export function uploadDocument(projectId: number, file: File) {
       project_id: projectId,
       original_filename: file.name,
       file_type: file.name.split(".").pop() ?? "docx",
+      version_index: 1,
+      is_active: true,
+      extraction_metadata: { extractor: "demo", warnings: [] },
       extracted_text: "Documento demo cargado en modo preview sin backend público.",
       created_at: new Date().toISOString(),
     } satisfies DocumentRecord);
@@ -312,6 +357,34 @@ export function listReports(projectId: string | number) {
     return Promise.resolve(demoReports.filter((report) => report.project_id === Number(projectId)));
   }
   return apiFetch<Report[]>(`/projects/${projectId}/reports`);
+}
+
+export function listEvidence(projectId: string | number) {
+  if (isOfflineDemoMode()) return Promise.resolve([] satisfies EvidenceSource[]);
+  return apiFetch<EvidenceSource[]>(`/projects/${projectId}/evidence`);
+}
+
+export function refreshOfficialEvidence(projectId: string | number) {
+  if (isOfflineDemoMode()) return Promise.resolve([] satisfies EvidenceSource[]);
+  return apiFetch<EvidenceSource[]>(`/projects/${projectId}/evidence/refresh-official`, {
+    method: "POST",
+  });
+}
+
+export function getReportQuality(reportId: string | number) {
+  if (isOfflineDemoMode()) {
+    return Promise.resolve({
+      ok: true,
+      score: 82,
+      issues: [],
+      criteria: {
+        evidence_count: 2,
+        official_evidence_count: 1,
+        has_human_verification: true,
+      },
+    } satisfies ReportQuality);
+  }
+  return apiFetch<ReportQuality>(`/reports/${reportId}/quality`);
 }
 
 export function listSuggestions(projectId: string | number) {

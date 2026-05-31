@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
+from app.core.rate_limit import reset_rate_limits
 from app.db.base import Base
 from app.db.models import UserRole
 from app.db.session import get_db
@@ -39,9 +40,13 @@ def db_session(tmp_path) -> Generator[Session, None, None]:
     original_external_ai_data_processing_confirmed = settings.external_ai_data_processing_confirmed
     original_web_search_provider = settings.web_search_provider
     original_external_web_search_enabled = settings.external_web_search_enabled
+    original_official_source_fetch_enabled = settings.official_source_fetch_enabled
     original_web_search_max_results = settings.web_search_max_results
     original_web_search_timeout_seconds = settings.web_search_timeout_seconds
     original_demo_access_enabled = settings.demo_access_enabled
+    original_rate_limit_enabled = settings.rate_limit_enabled
+    original_rate_limit_window_seconds = settings.rate_limit_window_seconds
+    original_rate_limit_sensitive_per_window = settings.rate_limit_sensitive_per_window
     settings.upload_dir = str(tmp_path / "uploads")
     settings.generated_dir = str(tmp_path / "generated")
     settings.llm_provider = "mock"
@@ -53,14 +58,19 @@ def db_session(tmp_path) -> Generator[Session, None, None]:
     settings.external_ai_data_processing_confirmed = False
     settings.web_search_provider = "disabled"
     settings.external_web_search_enabled = False
+    settings.official_source_fetch_enabled = False
     settings.web_search_max_results = 3
     settings.web_search_timeout_seconds = 1.0
     settings.demo_access_enabled = True
+    settings.rate_limit_enabled = True
+    settings.rate_limit_window_seconds = 60
+    settings.rate_limit_sensitive_per_window = 1000
 
     session = TestingSessionLocal()
     try:
         yield session
     finally:
+        reset_rate_limits()
         session.close()
         Base.metadata.drop_all(bind=engine)
         settings.upload_dir = original_upload_dir
@@ -74,9 +84,13 @@ def db_session(tmp_path) -> Generator[Session, None, None]:
         settings.external_ai_data_processing_confirmed = original_external_ai_data_processing_confirmed
         settings.web_search_provider = original_web_search_provider
         settings.external_web_search_enabled = original_external_web_search_enabled
+        settings.official_source_fetch_enabled = original_official_source_fetch_enabled
         settings.web_search_max_results = original_web_search_max_results
         settings.web_search_timeout_seconds = original_web_search_timeout_seconds
         settings.demo_access_enabled = original_demo_access_enabled
+        settings.rate_limit_enabled = original_rate_limit_enabled
+        settings.rate_limit_window_seconds = original_rate_limit_window_seconds
+        settings.rate_limit_sensitive_per_window = original_rate_limit_sensitive_per_window
 
 
 @pytest.fixture()

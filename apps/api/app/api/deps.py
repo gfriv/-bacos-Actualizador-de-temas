@@ -9,6 +9,7 @@ from app.core.security import decode_access_token
 from app.db.models import User
 from app.db.session import get_db
 from app.llm.schemas import AIProviderConfig
+from app.llm.session_store import get_ai_session
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -34,7 +35,13 @@ def get_current_user(
 
 def get_ai_provider_config(
     encoded_config: str | None = Header(default=None, alias="X-Abacos-AI-Config"),
+    ai_session_id: str | None = Header(default=None, alias="X-Abacos-AI-Session"),
 ) -> AIProviderConfig | None:
+    if ai_session_id:
+        config = get_ai_session(ai_session_id)
+        if config is None:
+            raise HTTPException(status_code=400, detail="Sesion de IA no valida o caducada.")
+        return config
     if not encoded_config:
         return None
     try:

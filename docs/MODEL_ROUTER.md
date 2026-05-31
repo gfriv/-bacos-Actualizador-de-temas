@@ -37,7 +37,7 @@ La app permite elegir proveedor al inicio de cada sesión. El usuario puede usar
 - Ollama local, detectando modelos instalados mediante `/api/tags`.
 - MockProvider para demo o desarrollo.
 
-La configuración del usuario no se guarda en base de datos. El frontend la conserva en `sessionStorage` y la envía como `X-Abacos-AI-Config` solo a operaciones del pipeline. El backend valida esa cabecera con `AIProviderConfig` y construye un `ModelRouter(provider_config=...)`.
+La configuración del usuario no se guarda en base de datos. Con sesión iniciada, el frontend envía la API key al backend solo para crear una sesión efímera mediante `POST /api/ai/sessions`; después conserva en `sessionStorage` únicamente proveedor, modelo e identificador `X-Abacos-AI-Session`. La cabecera heredada `X-Abacos-AI-Config` queda como compatibilidad local, pero el frontend elimina API keys antiguas de almacenamiento antes de usarlas.
 
 Los endpoints asincronos `/queue` no aceptan `X-Abacos-AI-Config`; usan solo variables de entorno del backend para evitar que una API key BYOK quede serializada en Redis.
 
@@ -58,6 +58,7 @@ Los endpoints de catálogo y validación son:
 GET  /api/ai/providers
 POST /api/ai/providers/validate
 POST /api/ai/providers/models
+POST /api/ai/sessions
 ```
 
 Los endpoints de generación directa requieren autenticación para evitar un proxy público de LLM.
@@ -139,7 +140,7 @@ Proveedores:
 - `tavily`: búsqueda mediante API key de backend.
 - `brave`: Brave Search API mediante API key de backend.
 
-Las fuentes recuperadas se persisten en `Suggestion.source_reference`. En normativa, el servicio prioriza dominios oficiales como BOE, Ministerio de Educación, Educagob y EUR-Lex/Europa. La app no debe inventar legislación ni artículos: si no encuentra base suficiente, marca la sugerencia como baja confianza y pendiente de verificación docente.
+Las fuentes recuperadas se persisten como `EvidenceSource` y se vinculan a sugerencias con `SuggestionEvidence` cuando hay coincidencia suficiente. `Suggestion.source_reference` conserva un resumen legible para revisión docente. En normativa, el servicio prioriza dominios oficiales como BOE, Ministerio de Educación, Educagob y EUR-Lex/Europa. La app no debe inventar legislación ni artículos: si no encuentra base suficiente, marca la sugerencia como baja confianza y pendiente de verificación docente.
 
 `ANALYSIS_LLM_ENABLED=false` mantiene el análisis rápido y basado en búsqueda/API. Al activarlo, el ModelRouter intentará sintetizar las sugerencias con el LLM configurado usando únicamente las fuentes recuperadas como contexto. Si el proveedor no responde o devuelve JSON inválido, el backend vuelve al fallback trazable sin bloquear la revisión docente.
 

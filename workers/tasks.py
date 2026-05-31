@@ -13,10 +13,12 @@ from app.db.models import (
     AnalysisRun,
     AnalysisRunStatus,
     ConsolidatedDocument,
+    Document,
     DocumentSection,
     GeneratedResource,
     Project,
     ProjectStatus,
+    Report,
     ResourceType,
     Suggestion,
     SuggestionStatus,
@@ -24,10 +26,11 @@ from app.db.models import (
 from app.db.session import SessionLocal
 from app.document_processing.docx_writer import write_markdown_docx
 from app.llm.model_router import ModelRouter
+from app.services.evidence import build_evidence_sources, link_suggestions_to_evidence
 from app.services.audit import audit
 from app.services.consolidation import build_consolidated_markdown
 from app.services.file_storage import save_managed_file, uses_database_storage
-from app.services.report_quality_gate import assert_export_quality
+from app.services.report_quality_gate import assert_export_quality, evaluate_report_academic_quality
 from app.services.research_analysis import build_research_analysis
 from app.services.resources import RESOURCE_TITLES, decorate_resource_markdown
 
@@ -51,17 +54,31 @@ def research_worker(
         try:
             run = _start_run(db, analysis_run_id, project_id)
             project = _get_project(db, project_id)
+            _mark_project_outputs_stale(db, project.id)
+            active_document = db.scalar(
+                select(Document)
+                .where(Document.project_id == project.id, Document.is_active.is_(True))
+                .order_by(Document.created_at.desc())
+            )
+            section_query = select(DocumentSection).where(DocumentSection.project_id == project.id)
+            if active_document is not None:
+                section_query = section_query.where(DocumentSection.document_id == active_document.id)
             sections = list(
                 db.scalars(
-                    select(DocumentSection)
-                    .where(DocumentSection.project_id == project.id)
-                    .order_by(DocumentSection.order_index.asc())
+                    section_query.order_by(DocumentSection.order_index.asc())
                 )
             )
             if not sections:
                 raise RuntimeError("No hay secciones documentales para analizar.")
 
             analysis = asyncio.run(build_research_analysis(project, sections))
+            for item in [*analysis.reports, *analysis.suggestions]:
+                item.analysis_run_id = analysis_run_id
+            evidence_sources = build_evidence_sources(
+                project_id=project.id,
+                analysis_run_id=analysis_run_id,
+                results=analysis.evidence,
+            )
             for report in analysis.reports:
                 assert_export_quality(
                     report.content_markdown,
@@ -69,7 +86,19 @@ def research_worker(
                     require_sources=report.report_type.value
                     in {"scientific_update", "curriculum_mapping", "source_validation"},
                 )
-            db.add_all([*analysis.reports, *analysis.suggestions])
+            db.add_all([*analysis.reports, *analysis.suggestions, *evidence_sources])
+            db.flush()
+            link_suggestions_to_evidence(db, suggestions=analysis.suggestions, evidence_sources=evidence_sources)
+            quality_scores = [
+                evaluate_report_academic_quality(
+                    report.content_markdown,
+                    report_type=report.report_type.value,
+                    evidence_count=len(analysis.evidence),
+                    official_evidence_count=sum(1 for source in evidence_sources if source.source_kind == "official"),
+                    llm_degraded=analysis.llm_degraded,
+                ).score
+                for report in analysis.reports
+            ]
             project.status = ProjectStatus.under_review
             audit(
                 db,
@@ -81,6 +110,12 @@ def research_worker(
                 suggestions=len(analysis.suggestions),
             )
             _complete_run(run)
+            if run is not None:
+                run.llm_used = analysis.llm_used
+                run.web_search_used = analysis.web_search_used
+                run.official_sources_used = analysis.official_sources_used
+                run.quality_score = round(sum(quality_scores) / len(quality_scores)) if quality_scores else None
+                run.warnings_json = analysis.warnings or []
             db.commit()
             return {
                 "worker": "ResearchWorker",
@@ -114,8 +149,20 @@ def consolidation_worker(
         try:
             run = _start_run(db, analysis_run_id, project_id)
             project = _get_project(db, project_id)
-            sections = list(db.scalars(select(DocumentSection).where(DocumentSection.project_id == project.id)))
-            suggestions = list(db.scalars(select(Suggestion).where(Suggestion.project_id == project.id)))
+            active_document = db.scalar(
+                select(Document)
+                .where(Document.project_id == project.id, Document.is_active.is_(True))
+                .order_by(Document.created_at.desc())
+            )
+            section_query = select(DocumentSection).where(DocumentSection.project_id == project.id)
+            if active_document is not None:
+                section_query = section_query.where(DocumentSection.document_id == active_document.id)
+            sections = list(db.scalars(section_query.order_by(DocumentSection.order_index.asc())))
+            suggestions = list(
+                db.scalars(
+                    select(Suggestion).where(Suggestion.project_id == project.id, Suggestion.is_stale.is_(False))
+                )
+            )
             approved_count = sum(
                 1
                 for suggestion in suggestions
@@ -166,7 +213,7 @@ def resource_generation_worker(
             resource_enum = ResourceType(resource_type)
             consolidated = db.scalar(
                 select(ConsolidatedDocument)
-                .where(ConsolidatedDocument.project_id == project.id)
+                .where(ConsolidatedDocument.project_id == project.id, ConsolidatedDocument.is_stale.is_(False))
                 .order_by(ConsolidatedDocument.created_at.desc())
             )
             if consolidated is None:
@@ -298,6 +345,29 @@ def _write_consolidated_docx(db, project_id: int, markdown: str) -> str:
     docx_path = generated_dir / docx_filename
     write_markdown_docx(markdown, docx_path)
     return str(docx_path)
+
+
+def _mark_project_outputs_stale(db, project_id: int) -> None:
+    for report in db.scalars(select(Report).where(Report.project_id == project_id, Report.is_stale.is_(False))):
+        report.is_stale = True
+    for suggestion in db.scalars(
+        select(Suggestion).where(Suggestion.project_id == project_id, Suggestion.is_stale.is_(False))
+    ):
+        suggestion.is_stale = True
+    for consolidated in db.scalars(
+        select(ConsolidatedDocument).where(
+            ConsolidatedDocument.project_id == project_id,
+            ConsolidatedDocument.is_stale.is_(False),
+        )
+    ):
+        consolidated.is_stale = True
+    for resource in db.scalars(
+        select(GeneratedResource).where(
+            GeneratedResource.project_id == project_id,
+            GeneratedResource.is_stale.is_(False),
+        )
+    ):
+        resource.is_stale = True
 
 
 def _safe_error_message(exc: Exception) -> str:

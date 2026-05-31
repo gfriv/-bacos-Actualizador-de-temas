@@ -34,12 +34,17 @@ class Settings(BaseSettings):
     external_ai_data_processing_confirmed: bool = False
     web_search_provider: str = "disabled"
     external_web_search_enabled: bool = False
+    official_source_fetch_enabled: bool = True
     web_search_max_results: int = 5
     web_search_timeout_seconds: float = 6.0
     tavily_api_key: str = ""
     brave_search_api_key: str = ""
     demo_access_enabled: bool = True
     demo_user_email: str = "demo@abacos.test"
+    security_headers_enabled: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_sensitive_per_window: int = 60
 
 
 @lru_cache

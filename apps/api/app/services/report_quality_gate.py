@@ -19,6 +19,7 @@ class QualityGateResult:
     ok: bool
     score: int
     issues: tuple[QualityIssue, ...]
+    criteria: dict[str, int | bool | str] | None = None
 
 
 SECRET_PATTERNS = (
@@ -125,7 +126,59 @@ def evaluate_export_quality(
 
     blocking_issues = [issue for issue in issues if issue.blocking]
     score = max(0, 100 - sum(_penalty(issue.severity) for issue in issues))
-    return QualityGateResult(ok=not blocking_issues, score=score, issues=tuple(issues))
+    return QualityGateResult(ok=not blocking_issues, score=score, issues=tuple(issues), criteria=None)
+
+
+def evaluate_report_academic_quality(
+    content: str,
+    *,
+    report_type: str,
+    evidence_count: int = 0,
+    official_evidence_count: int = 0,
+    llm_degraded: bool = False,
+) -> QualityGateResult:
+    base = evaluate_export_quality(
+        content,
+        artifact_type=report_type,
+        require_sources=report_type in {"scientific_update", "curriculum_mapping", "source_validation"},
+    )
+    text = content.lower()
+    criteria: dict[str, int | bool | str] = {
+        "evidence_count": evidence_count,
+        "official_evidence_count": official_evidence_count,
+        "has_traceability": evidence_count > 0 and ("http" in text or "fuente" in text or "referencia" in text),
+        "has_human_verification": "verificaci" in text or "revision docente" in text or "revisión docente" in text,
+        "has_localized_change": "seccion" in text or "sección" in text or "fragmento" in text,
+        "has_confidence_language": any(term in text for term in ("confirmado", "probable", "requiere verificacion", "requiere verificación")),
+        "has_academic_rubric": "rúbrica académica" in text or "rubrica academica" in text,
+        "has_risk_language": "riesgo" in text or "aspecto a verificar" in text,
+        "llm_degraded": llm_degraded,
+    }
+    issues = list(base.issues)
+    if not criteria["has_traceability"]:
+        issues.append(QualityIssue("academic_traceability", "high", "El informe no muestra trazabilidad suficiente."))
+    if report_type == "curriculum_mapping" and official_evidence_count == 0:
+        issues.append(QualityIssue("missing_official_evidence", "high", "El informe curricular no tiene fuente oficial."))
+    if not criteria["has_human_verification"]:
+        issues.append(QualityIssue("missing_human_validation", "medium", "Falta recordatorio de validacion docente."))
+    if not criteria["has_confidence_language"]:
+        issues.append(QualityIssue("missing_confidence_taxonomy", "medium", "No distingue confirmado, probable y a verificar."))
+    if not criteria["has_academic_rubric"]:
+        issues.append(QualityIssue("missing_academic_rubric", "medium", "No incluye rúbrica académica o criterios de riesgo."))
+    if not criteria["has_risk_language"]:
+        issues.append(QualityIssue("missing_risk_language", "low", "No explicita riesgos o aspectos a verificar.", blocking=False))
+    if llm_degraded:
+        issues.append(
+            QualityIssue(
+                "llm_degraded",
+                "low",
+                "El informe se genero sin sintesis LLM completa.",
+                blocking=False,
+            )
+        )
+    score = max(0, 100 - sum(_penalty(issue.severity) for issue in issues))
+    blocking_issues = [issue for issue in issues if issue.blocking]
+    return QualityGateResult(ok=not blocking_issues, score=score, issues=tuple(issues), criteria=criteria)
 
 
 def assert_export_quality(content: str, **kwargs: object) -> QualityGateResult:

@@ -178,6 +178,16 @@ export async function pullOllamaModel(
   });
 }
 
+export async function createAIProviderSession(
+  config: AIProviderConfig,
+): Promise<{ aiSessionId: string; expiresAt: string }> {
+  const result = await apiFetch<{ ai_session_id: string; expires_at: string }>("/ai/sessions", {
+    method: "POST",
+    body: JSON.stringify({ config: toBackendAIConfig(config) }),
+  });
+  return { aiSessionId: result.ai_session_id, expiresAt: result.expires_at };
+}
+
 class BackendAIProvider implements AIProvider {
   id: string;
   displayName: string;

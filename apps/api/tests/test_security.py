@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.rate_limit import reset_rate_limits
 from app.core.security import create_access_token, hash_password
 from app.db.models import AuditLog, Project, ProjectStatus, Report, ReportType, User, UserRole
 
@@ -19,6 +21,33 @@ def test_tampered_bearer_token_cannot_create_project(client: TestClient) -> None
     )
 
     assert response.status_code == 401
+
+
+def test_security_headers_are_applied(client: TestClient) -> None:
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+
+def test_sensitive_rate_limit_blocks_repeated_login(client: TestClient) -> None:
+    original_limit = settings.rate_limit_sensitive_per_window
+    original_window = settings.rate_limit_window_seconds
+    settings.rate_limit_sensitive_per_window = 2
+    settings.rate_limit_window_seconds = 60
+    reset_rate_limits()
+    try:
+        for _ in range(2):
+            response = client.post("/api/auth/login", json={"email": "none@example.com", "password": "bad"})
+            assert response.status_code == 401
+        blocked = client.post("/api/auth/login", json={"email": "none@example.com", "password": "bad"})
+        assert blocked.status_code == 429
+    finally:
+        settings.rate_limit_sensitive_per_window = original_limit
+        settings.rate_limit_window_seconds = original_window
+        reset_rate_limits()
 
 
 def test_reviewer_role_cannot_create_project(client: TestClient, db_session: Session) -> None:

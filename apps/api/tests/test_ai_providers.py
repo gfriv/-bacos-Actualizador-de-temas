@@ -68,6 +68,32 @@ def test_authenticated_mock_generation(client: TestClient, auth_headers: dict[st
     assert "MockProvider" in response.json()["text"]
 
 
+def test_ai_session_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        "/api/ai/sessions",
+        json={"config": {"provider_id": "mock", "mode": "local"}},
+    )
+
+    assert response.status_code == 401
+
+
+def test_ai_session_returns_ephemeral_id_without_leaking_key(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    secret = "sk-test-secret-should-not-leak"
+
+    response = client.post(
+        "/api/ai/sessions",
+        headers=auth_headers,
+        json={"config": {"provider_id": "mock", "mode": "local", "api_key": secret}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ai_session_id"]
+    assert response.json()["expires_at"]
+    assert secret not in response.text
+
+
 def test_ollama_pull_requires_explicit_confirmation(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
