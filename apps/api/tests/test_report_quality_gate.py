@@ -41,3 +41,18 @@ def test_quality_gate_blocks_internal_paths_and_secrets() -> None:
     assert {issue.code for issue in result.issues} >= {"secret_like_value", "internal_path"}
     with pytest.raises(ValueError):
         assert_export_quality(content, artifact_type="report")
+
+
+def test_quality_gate_does_not_block_spanish_todo_word() -> None:
+    content = valid_exportable_markdown() + "\n\nTodo el contenido debe revisarse por el docente."
+
+    assert evaluate_export_quality(content, artifact_type="report").ok is True
+
+
+def test_quality_gate_blocks_uppercase_todo_placeholder() -> None:
+    content = valid_exportable_markdown() + "\n\nTODO: completar referencias antes de exportar."
+
+    result = evaluate_export_quality(content, artifact_type="report")
+
+    assert result.ok is False
+    assert "placeholder" in {issue.code for issue in result.issues}

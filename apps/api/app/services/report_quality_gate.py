@@ -34,7 +34,14 @@ INTERNAL_PATH_PATTERN = re.compile(
     r"storage[\\/]+uploads|storage[\\/]+generated|db://|file_path|docx_path)",
     re.IGNORECASE,
 )
-PLACEHOLDER_PATTERN = re.compile(r"(?:\[object Object\]|undefined|null|null\.|TODO|CHANGE_ME|dev-secret)", re.IGNORECASE)
+PLACEHOLDER_PATTERNS = (
+    re.compile(r"\[object Object\]"),
+    re.compile(r"\bundefined\b|\bnull\b|null\.", re.IGNORECASE),
+    # TODO must remain case-sensitive: "todo" is a common Spanish word in academic reports.
+    re.compile(r"\bTODO\b"),
+    re.compile(r"\bCHANGE_ME\b", re.IGNORECASE),
+    re.compile(r"\bdev-secret\b", re.IGNORECASE),
+)
 DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
@@ -78,7 +85,7 @@ def evaluate_export_quality(
             )
         )
 
-    if PLACEHOLDER_PATTERN.search(text):
+    if any(pattern.search(text) for pattern in PLACEHOLDER_PATTERNS):
         issues.append(
             QualityIssue(
                 code="placeholder",
