@@ -334,7 +334,7 @@ El modo escritorio:
 - ofrece un wizard inicial para elegir API propia u Ollama local;
 - usa `http://127.0.0.1:11434/api/tags` para detectar modelos de Ollama.
 
-La versión actual todavía requiere Python/uv disponibles en el equipo para arrancar FastAPI. No es un instalador final totalmente autónomo hasta decidir si se embebe Python o se documenta como prerequisito. Ver `docs/DESKTOP.md`.
+El instalador Windows genera un runtime Python embebido para arrancar FastAPI sin Python/uv externos en el equipo del usuario. El instalador verificado del 31/05/2026 pesa `230.190.177 bytes` y el paquete desempaquetado responde correctamente en frontend `127.0.0.1:3765` y backend `127.0.0.1:8765`. Sigue pendiente probarlo en una máquina limpia y firmar el ejecutable antes de distribuirlo ampliamente. Ver `docs/DESKTOP.md` e `INSTRUCCIONES_INSTALACION.md`.
 
 ## Tests Y Calidad
 

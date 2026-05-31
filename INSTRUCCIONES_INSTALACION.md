@@ -12,11 +12,11 @@ Archivo:
 release/AbacosIA-Setup-0.1.0.exe
 ```
 
-La version actual esta pensada para demo tecnica/local. Todavia no es un instalador completamente autonomo para cualquier ordenador limpio, porque el backend local necesita Python y uv disponibles en el sistema.
+La version actual esta pensada para demo tecnica/local. El instalador generado con el runtime embebido incluye Python y las dependencias del backend, por lo que el usuario final no deberia tener que instalar Python ni uv para arrancar la aplicacion.
 
 ## Diferencia Entre Opciones
 
-### 1. Instalador actual
+### 1. Instalador actual autonomo
 
 Ventajas:
 
@@ -25,30 +25,15 @@ Ventajas:
 - Puede usar MockProvider sin coste.
 - Puede usar Ollama local si esta instalado.
 - No depende necesariamente de Vercel para funcionar.
+- Incluye Python 3.12 y dependencias del backend dentro del instalador.
 
 Limitaciones:
 
-- Necesita Python 3.12 o superior instalado.
-- Necesita uv instalado.
-- No incluye todavia Python embebido dentro del instalador.
+- El instalador pesa mas porque incluye Python y dependencias del backend.
 - No esta firmado digitalmente para distribucion publica amplia.
+- Sigue siendo recomendable probarlo en una maquina limpia antes de entregarlo a usuarios finales.
 
-### 2. Instalador autonomo futuro
-
-Ventajas:
-
-- El usuario instalaria un solo `.exe`.
-- No tendria que instalar Python ni uv manualmente.
-- Mejor para distribuir a profesores no tecnicos.
-
-Trabajo pendiente:
-
-- Empaquetar Python y dependencias dentro del instalador.
-- Ajustar rutas internas del backend embebido.
-- Probar en una maquina limpia.
-- Firmar el ejecutable si se va a distribuir fuera de entorno interno.
-
-### 3. Version web con backend remoto
+### 2. Version web con backend remoto
 
 Ventajas:
 
@@ -63,31 +48,26 @@ Limitaciones:
 - Si se usan proveedores externos de IA con documentos reales, hace falta revision RGPD y contrato de tratamiento.
 - Ollama local del usuario no puede usarse desde un backend remoto como Vercel.
 
+### 3. Instalador tecnico sin Python embebido
+
+Ventajas:
+
+- Pesa menos.
+- Es util para desarrollo o equipos tecnicos.
+
+Limitaciones:
+
+- Requiere Python y uv instalados manualmente.
+- No es recomendable para profesorado no tecnico.
+
 ## Requisitos Para Probar El Instalador Actual
 
 En Windows:
 
-1. Python 3.12 o superior.
-2. uv instalado.
-3. Opcional: Ollama, si se quiere usar IA local real.
+1. Ejecutar el instalador.
+2. Opcional: instalar Ollama, si se quiere usar IA local real.
 
-Comprobar Python:
-
-```powershell
-python --version
-```
-
-Instalar uv si no existe:
-
-```powershell
-python -m pip install uv
-```
-
-Comprobar uv:
-
-```powershell
-python -m uv --version
-```
+Python y uv solo son necesarios para desarrollo o para generar de nuevo el instalador desde el repositorio.
 
 ## Instalacion
 
@@ -173,11 +153,10 @@ Reglas:
 Comprobar:
 
 ```powershell
-python --version
-python -m uv --version
+%APPDATA%\AbacosIA\logs
 ```
 
-Si Python o uv no existen, instalarlos y volver a abrir la app.
+Revisar `desktop-backend.log`. Si el instalador no se ha generado con runtime embebido, entonces si haran falta Python y uv.
 
 ### Ollama no aparece
 
@@ -211,7 +190,19 @@ El instalador actualizado se genero el 31/05/2026 e incluye el pipeline nuevo:
 - ResearchPlanner.
 - SourceRanker.
 - DocumentBlueprint para recursos.
+- Runtime Python embebido para arrancar FastAPI sin Python externo.
+
+Tamanos verificados:
+
+- Instalador: `230.190.177 bytes` (`219,5 MB` aprox.).
+- Runtime Python incluido en `win-unpacked`: `133,4 MB` aprox.
+
+Pruebas realizadas:
+
+- `resources/python/python.exe` importa FastAPI, Uvicorn y Alembic.
+- El paquete desempaquetado arranca frontend en `127.0.0.1:3765`.
+- El backend embebido responde en `127.0.0.1:8765/api/health`.
 
 ## Recomendacion Para Siguiente Fase
 
-Para que el instalador sea apto para usuarios no tecnicos, la mejor opcion es crear un instalador autonomo que incluya Python y dependencias del backend, o usar un backend remoto gestionado y dejar Electron como interfaz de escritorio.
+Para que el instalador sea apto para usuarios no tecnicos, queda pendiente probarlo en una maquina limpia y firmar el ejecutable. Para entornos multiusuario o piloto real, sigue siendo recomendable valorar backend remoto gestionado con almacenamiento persistente.

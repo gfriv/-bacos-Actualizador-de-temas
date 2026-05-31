@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
+import { app } from "electron";
 import { getDesktopPaths, getRepoRoot } from "./appPaths";
 import { redactSecrets } from "../security/secretRedaction";
 import type { BackendStatus } from "../types/desktop";
@@ -29,6 +30,7 @@ export class BackendProcessManager {
 
     const root = getRepoRoot();
     const apiDir = path.join(root, "apps", "api");
+    const pythonRuntime = getPythonRuntime();
     const desktopPaths = getDesktopPaths();
     const env = {
       ...process.env,
@@ -39,25 +41,41 @@ export class BackendProcessManager {
       CORS_ORIGINS: JSON.stringify([this.rendererUrl, `http://${BACKEND_HOST}:${BACKEND_PORT}`]),
       DEMO_ACCESS_ENABLED: "true",
       OCR_ENABLED: "false",
-      PYTHONUTF8: "1"
+      PYTHONUTF8: "1",
+      PYTHONDONTWRITEBYTECODE: "1",
+      ...(pythonRuntime
+        ? {
+            PYTHONNOUSERSITE: "1",
+            PYTHONPATH: [
+              path.join(pythonRuntime.home, "Lib", "site-packages"),
+              apiDir,
+              process.env.PYTHONPATH
+            ]
+              .filter(Boolean)
+              .join(path.delimiter)
+          }
+        : {})
     };
+    const pythonCommand = pythonRuntime?.executable ?? "python";
+    const migrationArgs = pythonRuntime
+      ? ["-m", "alembic", "upgrade", "head"]
+      : ["-m", "uv", "run", "alembic", "upgrade", "head"];
+    const apiArgs = pythonRuntime
+      ? ["-m", "uvicorn", "app.main:app", "--host", BACKEND_HOST, "--port", String(BACKEND_PORT)]
+      : [
+          "-m",
+          "uv",
+          "run",
+          "uvicorn",
+          "app.main:app",
+          "--host",
+          BACKEND_HOST,
+          "--port",
+          String(BACKEND_PORT)
+        ];
 
-    await this.runCommand("python", ["-m", "uv", "run", "alembic", "upgrade", "head"], apiDir, env);
-    this.process = spawn(
-      "python",
-      [
-        "-m",
-        "uv",
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--host",
-        BACKEND_HOST,
-        "--port",
-        String(BACKEND_PORT)
-      ],
-      { cwd: apiDir, env, windowsHide: true, stdio: "pipe" }
-    );
+    await this.runCommand(pythonCommand, migrationArgs, apiDir, env);
+    this.process = spawn(pythonCommand, apiArgs, { cwd: apiDir, env, windowsHide: true, stdio: "pipe" });
     this.process.stdout.on("data", (chunk) => this.log("api", chunk));
     this.process.stderr.on("data", (chunk) => this.log("api", chunk));
     this.process.once("exit", (code) => {
@@ -137,4 +155,11 @@ export class BackendProcessManager {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getPythonRuntime(): { executable: string; home: string } | null {
+  if (!app.isPackaged) return null;
+  const home = path.join(process.resourcesPath, "python");
+  const executable = path.join(home, process.platform === "win32" ? "python.exe" : "bin/python3");
+  return existsSync(executable) ? { executable, home } : null;
 }

@@ -16,7 +16,8 @@
     "desktop:dev": "cross-env NEXT_PUBLIC_API_URL=http://127.0.0.1:8765/api ABACOS_RENDERER_URL=http://127.0.0.1:3000 concurrently -k -n WEB,ELECTRON -c red,blue \"corepack pnpm --dir apps/web dev\" \"wait-on http://127.0.0.1:3000 && node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && electron .\"",
     "desktop:build:web": "cross-env DESKTOP_BUILD=1 NEXT_PUBLIC_API_URL=http://127.0.0.1:8765/api corepack pnpm --dir apps/web build && node scripts/prepare-electron-standalone.mjs",
     "desktop:build": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web",
-    "installer:win": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web && electron-builder --win nsis --x64",
+    "desktop:python-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\prepare-python-runtime.ps1",
+    "installer:win": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web && corepack pnpm desktop:python-runtime && electron-builder --win nsis --x64",
     "installer:win:offline": "electron-builder --win nsis --x64",
     "installer:mac": "node apps/web/node_modules/typescript/bin/tsc -p electron/tsconfig.json && corepack pnpm desktop:build:web && electron-builder --mac dmg",
     "installer:clean": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item -LiteralPath release,dist-electron -Recurse -Force -ErrorAction SilentlyContinue\"",
@@ -58,6 +59,10 @@
       {
         "from": "apps/web/public",
         "to": "apps/web/public"
+      },
+      {
+        "from": "desktop-runtime/python",
+        "to": "python"
       }
     ],
     "win": {
