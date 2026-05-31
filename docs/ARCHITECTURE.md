@@ -76,6 +76,15 @@ Queued jobs do not accept BYOK headers because API keys must not be serialized i
 - legal framework supplied by the teacher;
 - detected section concepts.
 
+The research layer has four explicit service steps before any LLM synthesis:
+
+1. `ClaimExtractor` detects legal, curricular, scientific, bibliographic and didactic claims inside each section.
+2. `NormativeEngine` builds the expected hierarchy of state law, state curriculum, regional curriculum, evaluation rules and opposition call when applicable.
+3. `ResearchPlanner` converts claims and normative context into layered queries: official state, regional official, academic and bibliographic.
+4. `SourceRanker` scores each evidence item by authority, recency, legal relevance, section/claim relevance and citation quality.
+
+The LLM receives curated context from those services. It does not browse freely, choose sources opaquely or apply changes directly.
+
 For curricular analysis, it prioritizes official domains such as BOE, DOE/Junta de Extremadura, Educarex, Educagob, Ministerio de Educación and EU legal sources. The same flow supports preparation for Spanish teaching exams, including Infantil, Primaria, Secundaria and FP, by adding official BOE references for the relevant stage and the state teaching-entry regulation when applicable. When the project mentions Extremadura, the curated evidence layer also adds Ley 4/2011 de Educación de Extremadura, consolidated Extremadura LOMLOE curriculum decrees by stage, evaluation rules and FP references where applicable. Search results are not applied automatically; they become traceable `EvidenceSource` rows, optional `SuggestionEvidence` links, report references and `Suggestion.source_reference`.
 
 Providers are selected with `WEB_SEARCH_PROVIDER`: `disabled`, `duckduckgo`, `tavily` or `brave`. External search requires `EXTERNAL_WEB_SEARCH_ENABLED=true`; the default is disabled.
@@ -102,3 +111,7 @@ Each uploaded document receives a `version_index` and an `is_active` flag. Uploa
 Consolidation uses only non-stale suggestions in `approved` or `edited` state. If the stored `original_fragment` no longer matches the active section context, the suggestion is marked with `anchor_status=failed` and is not inserted into the final document.
 
 Successful integrations use a whitespace-tolerant anchor match and append internal change notes with before/after snippets so the generated DOCX remains traceable.
+
+## Resource Generation
+
+Resources are generated only from the consolidated document. `DocumentBlueprint` parses the Markdown structure, extracts the title, section map and key terms, then creates resource-specific prompt context. This prevents the provider from treating a test, a class presentation and an audio script as the same generic task. MockProvider mirrors the same contract for local demos and tests.

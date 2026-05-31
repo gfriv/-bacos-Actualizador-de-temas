@@ -129,6 +129,8 @@ No se piden usuarios ni contraseñas de ChatGPT, Gemini, Claude ni servicios sim
 
 El analisis incorpora una capa opcional de busqueda web antes de crear informes y sugerencias. Por privacidad, queda desactivada por defecto. Las fuentes localizadas se guardan como `EvidenceSource`, se vinculan a sugerencias cuando procede y tambien quedan resumidas en `source_reference` para revision docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un proveedor permitido, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM esta desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
 
+Antes de buscar, el backend extrae `claims` del documento: afirmaciones normativas, curriculares, cientificas, bibliograficas y didacticas que merecen contraste. Con esos claims construye un `ResearchPlan` por capas: normativa estatal, normativa autonomica, busqueda academica y bibliografia. Las evidencias recuperadas se ordenan con `SourceRanker`, que pondera autoridad del dominio, vigencia, relevancia legal, coincidencia con claims y calidad de cita. El LLM no decide que fuente vale: recibe un paquete de contexto ya curado y puntuado por el backend.
+
 Modo seguro por defecto:
 
 ```env
@@ -172,7 +174,9 @@ Las sugerencias curriculares priorizan fuentes oficiales como `boe.es`, `doe.jun
 
 Si el profesor indica Extremadura, se añaden fuentes autonómicas oficiales: Ley 4/2011 de Educación de Extremadura, currículos LOMLOE consolidados de Infantil, Primaria, ESO y Bachillerato, normativa de evaluación y referencias de FP cuando proceda. Si no hay fuente oficial suficiente, la sugerencia queda con confianza baja y requiere verificación manual.
 
-El pipeline genera seis informes diferenciados: diagnóstico inicial, actualización científica, mapeo curricular, validación de fuentes, propuestas de cambio y trazabilidad técnica. Cada ejecución crea un `AnalysisRun` con indicadores de LLM, búsqueda, fuentes oficiales, avisos, puntuación de calidad y `academic_score`. La rúbrica académica automática localiza riesgos como ausencia de bibliografía, normativa antigua, falta de fuente oficial, secciones demasiado breves o afirmaciones de actualidad sin evidencia. Esa rúbrica no valida el tema: solo prioriza la revisión docente. Antes de descargar informes, consolidado o recursos, `ReportQualityGate` bloquea claves, rutas internas, placeholders y contenido sin aviso de asistencia de IA.
+El pipeline genera seis informes diferenciados: diagnóstico inicial, actualización científica, mapeo curricular, validación de fuentes, propuestas de cambio y trazabilidad técnica. Cada ejecución crea un `AnalysisRun` con indicadores de LLM, búsqueda, fuentes oficiales, avisos, puntuación de calidad y `academic_score`. La rúbrica académica automática localiza riesgos como ausencia de bibliografía, normativa antigua, falta de fuente oficial, secciones demasiado breves o afirmaciones de actualidad sin evidencia. Esa rúbrica no valida el tema: solo prioriza la revisión docente. Antes de descargar informes, consolidado o recursos, `ReportQualityGate` bloquea claves, rutas internas, placeholders y contenido sin aviso de asistencia de IA. La calidad de informes tambien expone si el documento muestra claims detectados y ranking/puntuacion de fuentes.
+
+La generacion de recursos no parte de un prompt generico. El backend construye un `DocumentBlueprint` del consolidado, extrae titulo, secciones y conceptos clave, y envia al proveedor una plantilla distinta para esquema, test, presentacion, audio o video. La regla se mantiene: los recursos derivan del consolidado aprobado y cualquier ampliacion debe quedar marcada como opcional.
 
 ## Docker
 

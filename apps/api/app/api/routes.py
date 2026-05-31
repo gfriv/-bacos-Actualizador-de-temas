@@ -92,7 +92,11 @@ from app.services.research_analysis import (
     collect_curated_curriculum_evidence,
     describe_ai_provider,
 )
-from app.services.resources import RESOURCE_TITLES, decorate_resource_markdown
+from app.services.resources import (
+    RESOURCE_TITLES,
+    build_resource_prompt_context,
+    decorate_resource_markdown,
+)
 
 router = APIRouter()
 
@@ -629,6 +633,7 @@ async def _run_research_analysis(
         project_id=project.id,
         analysis_run_id=analysis_run.id,
         results=analysis.evidence,
+        rankings=analysis.ranked_sources,
     )
     for report in analysis.reports:
         try:
@@ -1034,8 +1039,10 @@ async def generate_resource(
             detail="Genera el documento consolidado antes de crear recursos didacticos.",
         )
     document_text = consolidated.content_markdown
+    resource_context = build_resource_prompt_context(document_text, payload.resource_type.value)
     raw_content = await ModelRouter(provider_config=ai_config).generate_document_resource(
-        document_text, payload.resource_type.value
+        f"{resource_context}\n\nDocumento consolidado:\n{document_text}",
+        payload.resource_type.value,
     )
     provider_name, model_name = describe_ai_provider(ai_config)
     title = RESOURCE_TITLES[payload.resource_type]

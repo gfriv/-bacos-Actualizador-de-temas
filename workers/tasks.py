@@ -32,7 +32,7 @@ from app.services.consolidation import build_consolidated_markdown
 from app.services.file_storage import save_managed_file, uses_database_storage
 from app.services.report_quality_gate import assert_export_quality, evaluate_report_academic_quality
 from app.services.research_analysis import build_research_analysis
-from app.services.resources import RESOURCE_TITLES, decorate_resource_markdown
+from app.services.resources import RESOURCE_TITLES, build_resource_prompt_context, decorate_resource_markdown
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MARKDOWN_MEDIA_TYPE = "text/markdown; charset=utf-8"
@@ -78,6 +78,7 @@ def research_worker(
                 project_id=project.id,
                 analysis_run_id=analysis_run_id,
                 results=analysis.evidence,
+                rankings=analysis.ranked_sources,
             )
             for report in analysis.reports:
                 assert_export_quality(
@@ -219,8 +220,12 @@ def resource_generation_worker(
             if consolidated is None:
                 raise RuntimeError("Genera el documento consolidado antes de crear recursos didacticos.")
 
+            resource_context = build_resource_prompt_context(consolidated.content_markdown, resource_enum.value)
             raw_content = asyncio.run(
-                ModelRouter().generate_document_resource(consolidated.content_markdown, resource_enum.value)
+                ModelRouter().generate_document_resource(
+                    f"{resource_context}\n\nDocumento consolidado:\n{consolidated.content_markdown}",
+                    resource_enum.value,
+                )
             )
             title = RESOURCE_TITLES[resource_enum]
             content = decorate_resource_markdown(

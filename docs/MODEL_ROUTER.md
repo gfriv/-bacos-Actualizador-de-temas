@@ -119,7 +119,7 @@ Ollama evita enviar documentos a terceros, aunque la calidad depende mucho del m
 
 ## Búsqueda Web Y Evidencias
 
-El `ModelRouter` no navega por internet por sí mismo. La app añade una capa independiente en `app/research` para recuperar evidencias actuales antes de generar informes y sugerencias.
+El `ModelRouter` no navega por internet por sí mismo. La app añade una capa independiente en `app/research` para recuperar evidencias actuales antes de generar informes y sugerencias. El LLM recibe contexto ya curado: claims detectados, plan de búsqueda, jerarquía normativa esperada, evidencias y ranking de fuentes.
 
 Variables:
 
@@ -140,7 +140,9 @@ Proveedores:
 - `tavily`: búsqueda mediante API key de backend.
 - `brave`: Brave Search API mediante API key de backend.
 
-Las fuentes recuperadas se persisten como `EvidenceSource` y se vinculan a sugerencias con `SuggestionEvidence` cuando hay coincidencia suficiente. `Suggestion.source_reference` conserva un resumen legible para revisión docente. En normativa, el servicio prioriza dominios oficiales como BOE, Ministerio de Educación, Educagob y EUR-Lex/Europa. La app no debe inventar legislación ni artículos: si no encuentra base suficiente, marca la sugerencia como baja confianza y pendiente de verificación docente.
+Las fuentes recuperadas se persisten como `EvidenceSource` y se vinculan a sugerencias con `SuggestionEvidence` cuando hay coincidencia suficiente. `Suggestion.source_reference` conserva un resumen legible para revisión docente. En normativa, el servicio prioriza dominios oficiales como BOE, DOE/Junta de Extremadura, Ministerio de Educación, Educagob y EUR-Lex/Europa. La app no debe inventar legislación ni artículos: si no encuentra base suficiente, marca la sugerencia como baja confianza y pendiente de verificación docente.
+
+La selección de fuentes no depende solo del modelo. `SourceRanker` calcula puntuaciones de autoridad, vigencia, relevancia legal, coincidencia con claims y calidad de cita. Esas puntuaciones se guardan como `EvidenceSource.quality_score` y aparecen en los informes para que el docente pueda revisar por qué una fuente ha sido priorizada.
 
 `ANALYSIS_LLM_ENABLED=false` mantiene el análisis rápido y basado en búsqueda/API. Al activarlo, el ModelRouter intentará sintetizar las sugerencias con el LLM configurado usando únicamente las fuentes recuperadas como contexto. Si el proveedor no responde o devuelve JSON inválido, el backend vuelve al fallback trazable sin bloquear la revisión docente.
 
@@ -148,4 +150,4 @@ Las fuentes recuperadas se persisten como `EvidenceSource` y se vinculan a suger
 
 `app/research/source_policy.py` clasifica las evidencias como oficiales, académicas, editoriales, genéricas o no disponibles. Las fuentes oficiales se consideran confirmadas para orientar una propuesta, pero la decisión final sigue siendo docente.
 
-Antes de guardar o descargar informes y recursos, `app/services/report_quality_gate.py` comprueba que el contenido no incluya claves, rutas internas, placeholders ni salidas sin aviso de asistencia de IA. Los informes científico, curricular y de validación deben incluir fuentes o referencias.
+Antes de guardar o descargar informes y recursos, `app/services/report_quality_gate.py` comprueba que el contenido no incluya claves, rutas internas, placeholders ni salidas sin aviso de asistencia de IA. Los informes científico, curricular y de validación deben incluir fuentes o referencias. La puerta de calidad también expone como criterio si hay claims/afirmaciones detectadas y ranking/puntuación de fuentes.

@@ -49,6 +49,25 @@ from app.services.academic_rubric import (
     format_academic_rubric_markdown,
     select_section_for_code,
 )
+from app.services.claim_extractor import (
+    ClaimType,
+    DocumentClaim,
+    extract_claims,
+    format_claims_markdown,
+    profile_sections,
+)
+from app.services.normative_engine import format_normative_context_markdown
+from app.services.research_planner import (
+    ResearchPlan,
+    build_research_plan,
+    format_research_plan_markdown,
+    queries_from_plan,
+)
+from app.services.source_ranker import (
+    RankedSource,
+    format_ranked_sources_markdown,
+    rank_sources_for_claims,
+)
 
 PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
 CURATED_CURRICULUM_SOURCES = {
@@ -145,6 +164,8 @@ class ResearchAnalysisResult:
     suggestions: list[Suggestion]
     queries: list[str]
     evidence: list[SearchResult]
+    claims: list[DocumentClaim] | None = None
+    ranked_sources: list[RankedSource] | None = None
     llm_used: bool = False
     llm_degraded: bool = False
     web_search_used: bool = False
@@ -162,7 +183,9 @@ async def build_research_analysis(
     provider = search_provider or get_web_search_provider()
     generated_at = generated_at_iso()
     provider_name, model_name = describe_ai_provider(provider_config)
-    queries = build_search_queries(project, sections)
+    claims = extract_claims(project, sections)
+    plan = build_research_plan(project, sections, claims)
+    queries = queries_from_plan(plan) or build_search_queries(project, sections)
     curated_evidence = await collect_curated_curriculum_evidence(project) if should_fetch_official_sources(search_provider) else []
     queries_to_run = queries[:2] if curated_evidence else queries
     evidence = await collect_evidence(provider, queries_to_run)
@@ -176,6 +199,13 @@ async def build_research_analysis(
     scientific_evidence = [
         result for result in evidence if is_available_evidence(result) and not is_official_source(str(result.url))
     ]
+    ranked_sources = rank_sources_for_claims(evidence, claims, project)
+    if ranked_sources:
+        evidence = [source.result for source in ranked_sources]
+        official_evidence = [result for result in evidence if is_official_source(str(result.url))]
+        scientific_evidence = [
+            result for result in evidence if is_available_evidence(result) and not is_official_source(str(result.url))
+        ]
     rubric = evaluate_academic_rubric(project, sections, evidence)
 
     suggestions, llm_used, llm_degraded = await build_suggestions(
@@ -185,6 +215,8 @@ async def build_research_analysis(
         official_evidence,
         evidence,
         rubric,
+        claims,
+        ranked_sources,
         provider_config,
     )
     warnings: list[str] = []
@@ -209,6 +241,9 @@ async def build_research_analysis(
         llm_degraded=llm_degraded,
         warnings=warnings,
         rubric=rubric,
+        claims=claims,
+        plan=plan,
+        ranked_sources=ranked_sources,
     )
     return ResearchAnalysisResult(
         reports=reports,
@@ -220,6 +255,8 @@ async def build_research_analysis(
         web_search_used=allows_external_research(provider),
         official_sources_used=bool(curated_evidence),
         academic_score=rubric.score,
+        claims=claims,
+        ranked_sources=ranked_sources,
         warnings=warnings,
     )
 
@@ -391,6 +428,9 @@ def build_structured_reports(
     llm_degraded: bool,
     warnings: list[str],
     rubric: AcademicRubricResult,
+    claims: list[DocumentClaim],
+    plan: ResearchPlan,
+    ranked_sources: list[RankedSource],
 ) -> list[Report]:
     return [
         Report(
@@ -403,7 +443,7 @@ def build_structured_reports(
                 generated_at=generated_at,
                 provider_name=provider_name,
                 model_name=model_name,
-                body=build_initial_diagnosis_report(project, sections, evidence, warnings, rubric),
+                body=build_initial_diagnosis_report(project, sections, evidence, warnings, rubric, claims, plan),
             ),
         ),
         Report(
@@ -416,7 +456,7 @@ def build_structured_reports(
                 generated_at=generated_at,
                 provider_name=provider_name,
                 model_name=model_name,
-                body=build_scientific_report(project, sections, evidence, queries, rubric),
+                body=build_scientific_report(project, sections, evidence, queries, rubric, claims, ranked_sources),
             ),
         ),
         Report(
@@ -429,7 +469,7 @@ def build_structured_reports(
                 generated_at=generated_at,
                 provider_name=provider_name,
                 model_name=model_name,
-                body=build_curriculum_report(project, official_evidence, evidence, queries, rubric),
+                body=build_curriculum_report(project, official_evidence, evidence, queries, rubric, claims, plan),
             ),
         ),
         Report(
@@ -442,7 +482,7 @@ def build_structured_reports(
                 generated_at=generated_at,
                 provider_name=provider_name,
                 model_name=model_name,
-                body=build_source_validation_report(scientific_evidence, official_evidence, evidence, rubric),
+                body=build_source_validation_report(scientific_evidence, official_evidence, evidence, rubric, ranked_sources),
             ),
         ),
         Report(
@@ -468,7 +508,7 @@ def build_structured_reports(
                 generated_at=generated_at,
                 provider_name=provider_name,
                 model_name=model_name,
-                body=build_traceability_report(sections, evidence, queries, suggestions, llm_degraded, rubric),
+                body=build_traceability_report(sections, evidence, queries, suggestions, llm_degraded, rubric, claims, plan),
             ),
         ),
     ]
@@ -505,10 +545,16 @@ def build_initial_diagnosis_report(
     evidence: list[SearchResult],
     warnings: list[str],
     rubric: AcademicRubricResult,
+    claims: list[DocumentClaim],
+    plan: ResearchPlan,
 ) -> str:
     concepts = ", ".join(extract_concept_terms(sections)[:12]) or "conceptos pendientes de detección"
     characters = sum(len(section.content) for section in sections)
     warnings_block = "\n".join(f"- {warning}" for warning in warnings) or "- Sin advertencias operativas."
+    profiles_block = "\n".join(
+        f"- **{profile.title}**: {profile.section_type}; riesgos {', '.join(profile.risk_flags) or 'sin riesgos automaticos'}."
+        for profile in profile_sections(sections)
+    )
     return (
         "## Alcance del análisis\n\n"
         f"- Área/especialidad: **{project.area}**.\n"
@@ -527,6 +573,12 @@ def build_initial_diagnosis_report(
         "- La consolidación queda bloqueada si no hay sugerencias aprobadas o editadas.\n\n"
         "## Advertencias operativas\n\n"
         f"{warnings_block}\n\n"
+        "## Claims detectados\n\n"
+        f"{format_claims_markdown(claims)}\n\n"
+        "## Perfil de secciones\n\n"
+        f"{profiles_block}\n\n"
+        "## Plan de investigacion\n\n"
+        f"{format_research_plan_markdown(plan)}\n\n"
         f"{format_academic_rubric_markdown(rubric)}"
     )
 
@@ -537,6 +589,8 @@ def build_scientific_report(
     evidence: list[SearchResult],
     queries: list[str],
     rubric: AcademicRubricResult,
+    claims: list[DocumentClaim],
+    ranked_sources: list[RankedSource],
 ) -> str:
     concepts = ", ".join(extract_concept_terms(sections)[:10]) or "conceptos del documento"
     evidence_markdown = format_evidence(evidence[:8])
@@ -549,6 +603,10 @@ def build_scientific_report(
         f"{format_queries(queries[:2])}\n\n"
         "## Fuentes encontradas\n\n"
         f"{evidence_markdown}\n\n"
+        "## Afirmaciones cientificas o bibliograficas a verificar\n\n"
+        f"{format_claims_markdown([claim for claim in claims if claim.claim_type in {ClaimType.scientific, ClaimType.bibliographic}])}\n\n"
+        "## Ranking de fuentes para actualizacion\n\n"
+        f"{format_ranked_sources_markdown(ranked_sources)}\n\n"
         "## Calidad de fuentes\n\n"
         f"{format_assessments_markdown(evidence[:8])}\n\n"
         "## Riesgos académicos relevantes\n\n"
@@ -566,6 +624,8 @@ def build_curriculum_report(
     all_evidence: list[SearchResult],
     queries: list[str],
     rubric: AcademicRubricResult,
+    claims: list[DocumentClaim],
+    plan: ResearchPlan,
 ) -> str:
     official_markdown = format_evidence(official_evidence[:8])
     fallback_markdown = format_evidence(all_evidence[:5])
@@ -584,6 +644,10 @@ def build_curriculum_report(
         f"{format_queries(queries[2:] or queries)}\n\n"
         "## Fuentes normativas o de contraste\n\n"
         f"{sources_block}\n\n"
+        "## Jerarquia normativa esperada\n\n"
+        f"{format_normative_context_markdown(plan.normative_context)}\n\n"
+        "## Claims normativos/curriculares detectados\n\n"
+        f"{format_claims_markdown([claim for claim in claims if claim.claim_type in {ClaimType.legal, ClaimType.curricular}])}\n\n"
         "## Calidad de fuentes\n\n"
         f"{format_assessments_markdown((official_evidence or all_evidence)[:8])}\n\n"
         "## Riesgos curriculares detectados\n\n"
@@ -600,6 +664,7 @@ def build_source_validation_report(
     official_evidence: list[SearchResult],
     all_evidence: list[SearchResult],
     rubric: AcademicRubricResult,
+    ranked_sources: list[RankedSource],
 ) -> str:
     return (
         "## Resumen de validación\n\n"
@@ -608,6 +673,8 @@ def build_source_validation_report(
         f"- Fuentes científicas/no normativas detectadas: **{len(scientific_evidence)}**.\n\n"
         "## Evaluación fuente a fuente\n\n"
         f"{format_assessments_markdown(all_evidence[:12])}\n\n"
+        "## Ranking ponderado de fuentes\n\n"
+        f"{format_ranked_sources_markdown(ranked_sources)}\n\n"
         "## Rubrica academica y riesgos\n\n"
         f"{format_rubric_findings_for_report(rubric, {'missing_bibliography', 'scientific_claim_without_academic_evidence', 'no_official_curriculum_evidence'})}\n\n"
         "## Decisión de uso\n\n"
@@ -647,11 +714,14 @@ def build_traceability_report(
     suggestions: list[Suggestion],
     llm_degraded: bool,
     rubric: AcademicRubricResult,
+    claims: list[DocumentClaim],
+    plan: ResearchPlan,
 ) -> str:
     return (
         "## Trazabilidad técnica\n\n"
         f"- Secciones procesadas: **{len(sections)}**.\n"
         f"- Consultas preparadas: **{len(queries)}**.\n"
+        f"- Claims detectados: **{len(claims)}**.\n"
         f"- Evidencias recuperadas: **{len(evidence)}**.\n"
         f"- Sugerencias generadas: **{len(suggestions)}**.\n\n"
         "## Estado LLM\n\n"
@@ -663,6 +733,8 @@ def build_traceability_report(
         f"- Fuentes académicas/editoriales: **{rubric.academic_evidence_count}**.\n\n"
         "## Consultas documentadas\n\n"
         f"{format_queries(queries)}\n\n"
+        "## Capas de investigacion\n\n"
+        f"{format_research_plan_markdown(plan)}\n\n"
         "## Garantías aplicadas\n\n"
         "- Las claves de IA no se guardan en informes ni auditoría.\n"
         "- Las rutas internas de almacenamiento no forman parte del contenido exportable.\n"
@@ -677,6 +749,8 @@ async def build_suggestions(
     official_evidence: list[SearchResult],
     all_evidence: list[SearchResult],
     rubric: AcademicRubricResult,
+    claims: list[DocumentClaim],
+    ranked_sources: list[RankedSource],
     provider_config: AIProviderConfig | None = None,
 ) -> tuple[list[Suggestion], bool, bool]:
     first = select_section_for_code(
@@ -691,6 +765,12 @@ async def build_suggestions(
         {"no_official_curriculum_evidence", "possible_outdated_law_reference", "opposition_framework_incomplete"},
         fallback_index=1 if len(sections) > 1 else 0,
     )
+    scientific_claim = select_claim_for_types(claims, {ClaimType.scientific, ClaimType.bibliographic})
+    curriculum_claim = select_claim_for_types(claims, {ClaimType.legal, ClaimType.curricular})
+    if scientific_claim:
+        first = section_for_claim(sections, scientific_claim) or first
+    if curriculum_claim:
+        second = section_for_claim(sections, curriculum_claim) or second
     llm_suggestions, llm_degraded = await build_llm_grounded_suggestions(
         project=project,
         scientific_section=first,
@@ -706,8 +786,8 @@ async def build_suggestions(
             suggestions.append(build_bibliographic_suggestion(project, first, all_evidence, rubric))
         return suggestions, True, False
     suggestions = [
-        build_scientific_suggestion(project, first, scientific_evidence),
-        build_curriculum_suggestion(project, second, official_evidence, all_evidence),
+        build_claim_scientific_suggestion(project, first, scientific_evidence, scientific_claim, ranked_sources),
+        build_claim_curriculum_suggestion(project, second, official_evidence, all_evidence, curriculum_claim, ranked_sources),
     ]
     if should_add_bibliographic_suggestion(project, all_evidence):
         suggestions.append(build_bibliographic_suggestion(project, first, all_evidence, rubric))
@@ -810,6 +890,8 @@ def build_scientific_suggestion(
     project: Project,
     section: DocumentSection,
     evidence: list[SearchResult],
+    claim: DocumentClaim | None = None,
+    ranked_sources: list[RankedSource] | None = None,
 ) -> Suggestion:
     source = format_source_reference(evidence[:3]) or "Búsqueda web sin resultados suficientes; requiere verificación."
     return Suggestion(
@@ -866,6 +948,74 @@ def should_add_bibliographic_suggestion(project: Project, evidence: list[SearchR
     return not (project.bibliography_notes or "").strip() or not evidence
 
 
+def build_claim_scientific_suggestion(
+    project: Project,
+    section: DocumentSection,
+    evidence: list[SearchResult],
+    claim: DocumentClaim | None,
+    ranked_sources: list[RankedSource],
+) -> Suggestion:
+    source = source_reference_for_claim(claim, ranked_sources, evidence[:3])
+    original = claim.text if claim and claim.text in section.content else fragment(section.content)
+    proposed = (
+        "Revisar esta afirmacion localizada y actualizarla solo con las fuentes puntuadas que el docente confirme "
+        "como pertinentes."
+    )
+    if claim:
+        proposed = (
+            f"Revisar la afirmacion: «{fragment(claim.text, 180)}». "
+            "Si la evidencia seleccionada confirma desactualizacion, sustituirla por una formulacion fechada, "
+            "trazable y limitada al alcance de la fuente."
+        )
+    return Suggestion(
+        project_id=project.id,
+        section_id=section.id,
+        suggestion_type=SuggestionType.scientific_update,
+        original_fragment=original,
+        proposed_change=proposed,
+        justification=(
+            "La propuesta se ha generado desde claims detectados en el documento y fuentes ordenadas por autoridad, "
+            "vigencia y relevancia; no se integra sin revision docente."
+        ),
+        source_reference=source,
+        confidence_level=confidence_from_sources(ranked_sources, fallback="medium" if evidence else "low"),
+        status=SuggestionStatus.pending,
+        anchor_context=build_anchor_context(section.content, original),
+    )
+
+
+def build_claim_curriculum_suggestion(
+    project: Project,
+    section: DocumentSection,
+    official_evidence: list[SearchResult],
+    all_evidence: list[SearchResult],
+    claim: DocumentClaim | None,
+    ranked_sources: list[RankedSource],
+) -> Suggestion:
+    usable = official_evidence or all_evidence
+    source = source_reference_for_claim(claim, ranked_sources, usable[:3]) or project.legal_framework
+    original = claim.text if claim and claim.text in section.content else fragment(section.content)
+    return Suggestion(
+        project_id=project.id,
+        section_id=section.id,
+        suggestion_type=SuggestionType.legal_curricular,
+        original_fragment=original,
+        proposed_change=(
+            f"Contrastar el claim curricular de «{section.title}» con la jerarquia normativa recuperada "
+            f"({project.legal_framework}). Incorporar solo competencias, criterios o saberes que el docente "
+            "verifique en fuente oficial vigente."
+        ),
+        justification=(
+            "La sugerencia curricular se basa en claims detectados y fuentes oficiales priorizadas. "
+            "Las fuentes genericas no bastan para consolidar normativa."
+        ),
+        source_reference=source,
+        confidence_level=confidence_from_sources(ranked_sources, fallback="high" if official_evidence else "low"),
+        status=SuggestionStatus.pending,
+        anchor_context=build_anchor_context(section.content, original),
+    )
+
+
 def build_bibliographic_suggestion(
     project: Project,
     section: DocumentSection,
@@ -911,6 +1061,44 @@ def build_anchor_context(section_content: str, original_fragment: str) -> dict[s
         "prefix": clean_content[max(0, index - 80) : index],
         "suffix": clean_content[index + len(clean_fragment) : index + len(clean_fragment) + 80],
     }
+
+
+def select_claim_for_types(claims: list[DocumentClaim], claim_types: set[ClaimType]) -> DocumentClaim | None:
+    priority = {"high": 0, "medium": 1, "low": 2}
+    candidates = [claim for claim in claims if claim.claim_type in claim_types]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda claim: priority.get(claim.review_priority, 9))[0]
+
+
+def section_for_claim(sections: list[DocumentSection], claim: DocumentClaim) -> DocumentSection | None:
+    return next((section for section in sections if section.id == claim.section_id), None)
+
+
+def source_reference_for_claim(
+    claim: DocumentClaim | None,
+    ranked_sources: list[RankedSource],
+    fallback: list[SearchResult],
+) -> str:
+    if claim:
+        linked = [source for source in ranked_sources if claim.id in source.matched_claim_ids][:3]
+        if linked:
+            return "\n".join(
+                f"{source.result.title}: {source.result.url} (score {source.total_score}/100, {source.validation_status})"
+                for source in linked
+            )
+    return format_source_reference(fallback) or "Sin fuentes suficientes; requiere verificacion docente."
+
+
+def confidence_from_sources(ranked_sources: list[RankedSource], fallback: str) -> str:
+    if not ranked_sources:
+        return fallback
+    best = ranked_sources[0]
+    if any(source.source_kind == "official" and source.total_score >= 55 for source in ranked_sources[:3]):
+        return "high"
+    if best.total_score >= 65:
+        return "medium"
+    return "low"
 
 
 def extract_concept_terms(sections: list[DocumentSection]) -> list[str]:

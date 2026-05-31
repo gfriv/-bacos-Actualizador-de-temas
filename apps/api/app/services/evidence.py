@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.models import EvidenceSource, Suggestion, SuggestionEvidence
 from app.research.schemas import SearchResult
 from app.research.source_policy import assess_evidence
+from app.services.source_ranker import RankedSource
 
 
 def build_evidence_sources(
@@ -12,15 +13,18 @@ def build_evidence_sources(
     project_id: int,
     analysis_run_id: int | None,
     results: list[SearchResult],
+    rankings: list[RankedSource] | None = None,
 ) -> list[EvidenceSource]:
     sources: list[EvidenceSource] = []
     seen: set[str] = set()
+    ranking_by_url = {str(ranking.result.url): ranking for ranking in rankings or []}
     for result in results:
         url = str(result.url)
         if not url or url in seen or "example.invalid" in url:
             continue
         seen.add(url)
         assessment = assess_evidence(result)
+        ranking = ranking_by_url.get(url)
         sources.append(
             EvidenceSource(
                 project_id=project_id,
@@ -29,13 +33,24 @@ def build_evidence_sources(
                 url=url[:2048],
                 snippet=result.snippet,
                 provider=result.source or "unknown",
-                source_kind=assessment.source_kind,
-                validation_status=assessment.validation_status,
-                quality_score=assessment.score,
-                rationale=assessment.rationale,
+                source_kind=ranking.source_kind if ranking else assessment.source_kind,
+                validation_status=ranking.validation_status if ranking else assessment.validation_status,
+                quality_score=ranking.total_score if ranking else assessment.score,
+                rationale=_ranking_rationale(ranking) if ranking else assessment.rationale,
             )
         )
     return sources
+
+
+def _ranking_rationale(ranking: RankedSource | None) -> str | None:
+    if ranking is None:
+        return None
+    return (
+        f"{ranking.rationale} "
+        f"Scores: autoridad {ranking.authority_score}, vigencia {ranking.recency_score}, "
+        f"legal {ranking.legal_relevance_score}, seccion {ranking.section_relevance_score}, "
+        f"cita {ranking.citation_quality_score}."
+    )
 
 
 def link_suggestions_to_evidence(

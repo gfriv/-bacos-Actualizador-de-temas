@@ -152,6 +152,8 @@ def evaluate_report_academic_quality(
         "has_confidence_language": any(term in text for term in ("confirmado", "probable", "requiere verificacion", "requiere verificación")),
         "has_academic_rubric": "rúbrica académica" in text or "rubrica academica" in text,
         "has_risk_language": "riesgo" in text or "aspecto a verificar" in text,
+        "has_claim_extraction": "claim" in text or "afirmacion" in text or "afirmación" in text,
+        "has_source_ranking": "ranking" in text or "puntuad" in text or "score" in text,
         "llm_degraded": llm_degraded,
     }
     issues = list(base.issues)
@@ -167,6 +169,24 @@ def evaluate_report_academic_quality(
         issues.append(QualityIssue("missing_academic_rubric", "medium", "No incluye rúbrica académica o criterios de riesgo."))
     if not criteria["has_risk_language"]:
         issues.append(QualityIssue("missing_risk_language", "low", "No explicita riesgos o aspectos a verificar.", blocking=False))
+    if not criteria["has_claim_extraction"]:
+        issues.append(
+            QualityIssue(
+                "missing_claim_extraction",
+                "low",
+                "No explicita claims o afirmaciones revisables detectadas.",
+                blocking=False,
+            )
+        )
+    if report_type in {"scientific_update", "curriculum_mapping", "source_validation"} and not criteria["has_source_ranking"]:
+        issues.append(
+            QualityIssue(
+                "missing_source_ranking",
+                "low",
+                "No muestra puntuacion o ranking de fuentes.",
+                blocking=False,
+            )
+        )
     if llm_degraded:
         issues.append(
             QualityIssue(
