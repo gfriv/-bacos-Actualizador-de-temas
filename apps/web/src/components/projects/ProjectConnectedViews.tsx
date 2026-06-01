@@ -33,6 +33,7 @@ import { SuggestionReviewCard } from "@/components/ui/SuggestionReviewCard";
 import { RichTooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { WorkflowTimeline } from "@/components/ui/WorkflowTimeline";
 import {
+  approveAllAndConsolidateProject,
   consolidateProject,
   generateResource,
   getConsolidated,
@@ -526,6 +527,19 @@ export function ProjectConsolidatedClient({ projectId }: { projectId: string }) 
     }
   }
 
+  async function handleApproveAllAndConsolidate() {
+    setLoading(true);
+    try {
+      await approveAllAndConsolidateProject(projectId);
+      await workspace.reload();
+      toast.success("Sugerencias pendientes validadas y documento consolidado generado");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo validar en bloque");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={150}>
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -536,10 +550,21 @@ export function ProjectConsolidatedClient({ projectId }: { projectId: string }) 
           <div className="rounded-md border border-abacos-yellow/50 bg-yellow-50 p-4 text-sm leading-6 text-abacos-black">
             Solo se integrarán los cambios aprobados o editados por el docente. Pendientes y rechazadas quedan fuera.
           </div>
-          <Button className="mt-5" onClick={handleConsolidate} disabled={stats.integrable === 0 || loading}>
-            <BookOpenCheck className="h-4 w-4" aria-hidden />
-            {loading ? "Generando..." : "Generar documento consolidado"}
-          </Button>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button onClick={handleConsolidate} disabled={stats.integrable === 0 || loading}>
+              <BookOpenCheck className="h-4 w-4" aria-hidden />
+              {loading ? "Generando..." : "Generar documento consolidado"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleApproveAllAndConsolidate}
+              disabled={(stats.pending === 0 && stats.integrable === 0) || loading}
+            >
+              <ShieldCheck className="h-4 w-4" aria-hidden />
+              Validar pendientes y consolidar
+            </Button>
+          </div>
           {workspace.consolidated ? (
             <pre className="mt-5 max-h-[620px] overflow-auto whitespace-pre-wrap rounded-md bg-abacos-light p-4 text-sm leading-7">
               {workspace.consolidated.content_markdown}
@@ -558,7 +583,8 @@ export function ProjectConsolidatedClient({ projectId }: { projectId: string }) 
             <CompactStat label="Rechazadas" value={stats.rejected} />
           </div>
           <div className="mt-4 rounded-md bg-abacos-red-soft p-3 text-xs leading-5 text-abacos-red-dark">
-            El botón queda deshabilitado si no hay ninguna sugerencia aprobada o editada.
+            El boton principal exige sugerencias aprobadas o editadas. La validacion en bloque aprueba pendientes
+            antes de consolidar y mantiene rechazadas fuera del documento.
           </div>
         </SectionCard>
       </div>

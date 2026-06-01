@@ -2,6 +2,7 @@ import pytest
 
 from app.core.config import settings
 from app.db.models import DocumentSection, Project
+from app.llm.schemas import AIProviderConfig
 from app.research.schemas import SearchResult
 from app.services.research_analysis import (
     build_research_analysis,
@@ -118,7 +119,12 @@ async def test_research_analysis_fetches_curated_sources_without_general_search(
     monkeypatch.setattr(settings, "official_source_fetch_enabled", True)
     monkeypatch.setattr("app.services.research_analysis.collect_curated_curriculum_evidence", fake_curated_sources)
 
-    result = await build_research_analysis(project, [section], search_provider=None)
+    result = await build_research_analysis(
+        project,
+        [section],
+        search_provider=None,
+        provider_config=AIProviderConfig(provider_id="mock", mode="local", web_search_enabled=False),
+    )
 
     assert result.official_sources_used is True
     assert result.web_search_used is False

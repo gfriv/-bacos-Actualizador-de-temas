@@ -187,3 +187,29 @@ def test_external_ai_provider_is_blocked_until_rgpd_gate_is_enabled(
     assert response.status_code == 400
     assert "proveedores externos de IA" in response.json()["detail"]
     assert secret not in response.text
+
+
+def test_external_ai_session_accepts_explicit_teacher_confirmation_without_leaking_key(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    secret = "sk-test-secret-should-not-leak"
+
+    response = client.post(
+        "/api/ai/sessions",
+        headers=auth_headers,
+        json={
+            "config": {
+                "provider_id": "openai",
+                "mode": "api",
+                "api_key": secret,
+                "model": "gpt-4o-mini",
+                "external_data_processing_confirmed": True,
+                "web_search_enabled": True,
+                "web_search_provider": "duckduckgo",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ai_session_id"]
+    assert secret not in response.text

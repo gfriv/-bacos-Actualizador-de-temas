@@ -9,7 +9,7 @@ El instalador actual crea una aplicacion de escritorio con Electron. La app abre
 Archivo:
 
 ```text
-release/AbacosIA-Setup-0.1.1.exe
+release/AbacosIA-Setup-0.1.2.exe
 ```
 
 La version actual esta pensada para demo tecnica/local. El instalador generado con el runtime embebido incluye Python y las dependencias del backend, por lo que el usuario final no deberia tener que instalar Python ni uv para arrancar la aplicacion.
@@ -80,7 +80,7 @@ C:\Users\gfriv\OneDrive\Desktop\codex\pacientes sinteticos nutricia\Abacos\relea
 2. Ejecutar:
 
 ```text
-AbacosIA-Setup-0.1.1.exe
+AbacosIA-Setup-0.1.2.exe
 ```
 
 3. Seguir el asistente de instalacion.

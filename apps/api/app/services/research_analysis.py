@@ -180,7 +180,10 @@ async def build_research_analysis(
     search_provider: WebSearchProvider | None = None,
     provider_config: AIProviderConfig | None = None,
 ) -> ResearchAnalysisResult:
-    provider = search_provider or get_web_search_provider()
+    provider = search_provider or get_web_search_provider(
+        provider_config.web_search_provider if provider_config else None,
+        enabled=provider_config.web_search_enabled if provider_config else None,
+    )
     generated_at = generated_at_iso()
     provider_name, model_name = describe_ai_provider(provider_config)
     claims = extract_claims(project, sections)
@@ -957,15 +960,17 @@ def build_claim_scientific_suggestion(
 ) -> Suggestion:
     source = source_reference_for_claim(claim, ranked_sources, evidence[:3])
     original = claim.text if claim and claim.text in section.content else fragment(section.content)
+    source_focus = strongest_source_focus(claim, ranked_sources, evidence)
     proposed = (
-        "Revisar esta afirmacion localizada y actualizarla solo con las fuentes puntuadas que el docente confirme "
-        "como pertinentes."
+        "Reformular el fragmento como revision cientifica verificable: indicar que la idea requiere contraste "
+        f"con {source_focus}, anadir fecha/contexto de vigencia y retirar cualquier afirmacion absoluta que no "
+        "quede respaldada por una fuente concreta."
     )
     if claim:
         proposed = (
-            f"Revisar la afirmacion: «{fragment(claim.text, 180)}». "
-            "Si la evidencia seleccionada confirma desactualizacion, sustituirla por una formulacion fechada, "
-            "trazable y limitada al alcance de la fuente."
+            f"Sustituir o matizar la afirmacion «{fragment(claim.text, 180)}» por una formulacion fechada y "
+            f"atribuida a {source_focus}. Separar dato confirmado, interpretacion docente y aspecto pendiente "
+            "de comprobacion antes de entrar en el tema final."
         )
     return Suggestion(
         project_id=project.id,
@@ -995,19 +1000,22 @@ def build_claim_curriculum_suggestion(
     usable = official_evidence or all_evidence
     source = source_reference_for_claim(claim, ranked_sources, usable[:3]) or project.legal_framework
     original = claim.text if claim and claim.text in section.content else fragment(section.content)
+    source_focus = strongest_source_focus(claim, ranked_sources, usable)
+    focus_fragment = f"«{fragment(claim.text, 180)}»" if claim else f"«{section.title}»"
     return Suggestion(
         project_id=project.id,
         section_id=section.id,
         suggestion_type=SuggestionType.legal_curricular,
         original_fragment=original,
         proposed_change=(
-            f"Contrastar el claim curricular de «{section.title}» con la jerarquia normativa recuperada "
-            f"({project.legal_framework}). Incorporar solo competencias, criterios o saberes que el docente "
-            "verifique en fuente oficial vigente."
+            f"Contrastar {focus_fragment} con {source_focus}. Incorporar solo competencias, criterios o saberes "
+            "que el docente verifique en fuente oficial vigente; si no aparece el elemento exacto, dejarlo como "
+            "pendiente de verificacion normativa."
         ),
         justification=(
             "La sugerencia curricular se basa en claims detectados y fuentes oficiales priorizadas. "
-            "Las fuentes genericas no bastan para consolidar normativa."
+            f"Las fuentes genericas no bastan para consolidar normativa. Fuente prioritaria: {source_focus}. "
+            f"Foco revisable: {focus_fragment}."
         ),
         source_reference=source,
         confidence_level=confidence_from_sources(ranked_sources, fallback="high" if official_evidence else "low"),
@@ -1088,6 +1096,24 @@ def source_reference_for_claim(
                 for source in linked
             )
     return format_source_reference(fallback) or "Sin fuentes suficientes; requiere verificacion docente."
+
+
+def strongest_source_focus(
+    claim: DocumentClaim | None,
+    ranked_sources: list[RankedSource],
+    fallback: list[SearchResult],
+) -> str:
+    if claim:
+        linked = [source for source in ranked_sources if claim.id in source.matched_claim_ids]
+        if linked:
+            best = sorted(linked, key=lambda source: source.total_score, reverse=True)[0]
+            return f"{best.result.title} ({best.result.url}, score {best.total_score}/100)"
+    if ranked_sources:
+        best = ranked_sources[0]
+        return f"{best.result.title} ({best.result.url}, score {best.total_score}/100)"
+    if fallback:
+        return f"{fallback[0].title} ({fallback[0].url})"
+    return "fuentes verificables recuperadas por el sistema"
 
 
 def confidence_from_sources(ranked_sources: list[RankedSource], fallback: str) -> str:

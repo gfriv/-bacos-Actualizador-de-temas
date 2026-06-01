@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     analysis_llm_enabled: bool = False
     external_ai_providers_enabled: bool = False
     external_ai_data_processing_confirmed: bool = False
-    web_search_provider: str = "disabled"
-    external_web_search_enabled: bool = False
+    web_search_provider: str = "duckduckgo"
+    external_web_search_enabled: bool = True
     official_source_fetch_enabled: bool = True
     web_search_max_results: int = 5
     web_search_timeout_seconds: float = 6.0

@@ -11,8 +11,8 @@
 - AuditLog model for key actions.
 - LLM keys read only from backend environment variables.
 - Search API keys read only from backend environment variables.
-- External LLM providers are blocked by default through `EXTERNAL_AI_PROVIDERS_ENABLED=false` and `EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=false`.
-- External web search is blocked by default through `EXTERNAL_WEB_SEARCH_ENABLED=false`.
+- External LLM providers require either explicit per-session teacher confirmation in the app or the operational flags `EXTERNAL_AI_PROVIDERS_ENABLED=true` and `EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=true`.
+- External web search is enabled by default for local/demo evidence retrieval with `WEB_SEARCH_PROVIDER=duckduckgo`; disable it for private pilots until query privacy has been reviewed.
 - Optional user-supplied AI keys are exchanged for an authenticated in-memory `X-Abacos-AI-Session`; the frontend stores only provider/model/session id and strips legacy API keys from `sessionStorage`.
 - Queued worker endpoints reject `X-Abacos-AI-Config` so API keys cannot be serialized into Redis jobs.
 - AI provider validation, model listing, generation and Ollama pull endpoints require authenticated backend sessions. The public catalog only returns provider metadata.
@@ -63,19 +63,20 @@ Before any production deployment:
 
 ## Documents and External Providers
 
-Documents must not be sent to external providers except through the configured `ModelRouter`. Production cannot use external LLM providers unless both flags are enabled:
+Documents must not be sent to external providers except through the configured `ModelRouter`. The UI requires explicit teacher confirmation before creating an external API session with a user key. Production can also enforce an operational gate with:
 
 ```env
 EXTERNAL_AI_PROVIDERS_ENABLED=true
 EXTERNAL_AI_DATA_PROCESSING_CONFIRMED=true
 ```
 
-Those flags are an operational gate, not a legal substitute. Before enabling them, Ábacos must inform the client and review GDPR/RGPD obligations, data processing agreements, retention policy and provider region/model settings.
+Those flags and the UI checkbox are operational controls, not a legal substitute. Before using real client documents with external providers, Ábacos must inform the client and review GDPR/RGPD obligations, data processing agreements, retention policy and provider region/model settings.
 
-Search providers may receive query strings derived from project area, level, legal framework and detected concepts. External search stays disabled unless:
+Search providers may receive query strings derived from project area, level, legal framework and detected concepts. Local/demo defaults use DuckDuckGo so current public evidence works out of the box. For private pilots, disable it with:
 
 ```env
-EXTERNAL_WEB_SEARCH_ENABLED=true
+WEB_SEARCH_PROVIDER=disabled
+EXTERNAL_WEB_SEARCH_ENABLED=false
 ```
 
 Before enabling it in production, review whether those queries can contain confidential client information and configure redaction or a contractual provider if needed.

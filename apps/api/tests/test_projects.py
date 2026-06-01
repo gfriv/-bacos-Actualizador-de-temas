@@ -22,6 +22,37 @@ def test_create_project(client: TestClient, auth_headers: dict[str, str]) -> Non
     assert project_id > 0
 
 
+def test_legal_framework_catalog_is_public(client: TestClient) -> None:
+    response = client.get("/api/legal-frameworks")
+
+    assert response.status_code == 200
+    option_ids = {option["id"] for option in response.json()}
+    assert {"auto", "extremadura_infantil", "extremadura_primaria", "estatal_oposiciones"}.issubset(option_ids)
+
+
+def test_create_project_infers_legal_framework_when_empty(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/projects",
+        headers=auth_headers,
+        json={
+            "title": "Tema sin normativa manual",
+            "area": "Educacion Primaria",
+            "educational_level": "Oposiciones Educacion Primaria Extremadura",
+            "legal_framework": "",
+            "bibliography_notes": "",
+            "instructions": "Preparacion para tribunal en Caceres.",
+        },
+    )
+
+    assert response.status_code == 201
+    legal_framework = response.json()["legal_framework"]
+    assert "inferido" in legal_framework.lower()
+    assert "157/2022" in legal_framework
+    assert "Extremadura" in legal_framework
+
+
 def test_register_ignores_requested_admin_role(client: TestClient) -> None:
     response = client.post(
         "/api/auth/register",

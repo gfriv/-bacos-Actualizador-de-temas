@@ -71,11 +71,11 @@ def assert_provider_runtime_allowed(config: AIProviderConfig) -> None:
         return
 
     if config.provider_id in EXTERNAL_API_PROVIDERS:
-        _assert_external_ai_enabled()
+        _assert_external_ai_enabled(config)
 
     if config.base_url:
         if config.provider_id == "openai_compatible" and _requires_external_ai_gate(config.base_url):
-            _assert_external_ai_enabled()
+            _assert_external_ai_enabled(config)
         _assert_safe_base_url(config.base_url, allow_local=not is_serverless_runtime())
 
 
@@ -86,7 +86,9 @@ def _requires_external_ai_gate(base_url: str) -> bool:
     return not _is_local_or_private_host(parsed.hostname)
 
 
-def _assert_external_ai_enabled() -> None:
+def _assert_external_ai_enabled(config: AIProviderConfig) -> None:
+    if config.external_data_processing_confirmed:
+        return
     if not settings.external_ai_providers_enabled:
         raise ValueError(
             "Los proveedores externos de IA estan bloqueados. Activa EXTERNAL_AI_PROVIDERS_ENABLED=true solo tras revisar RGPD y contratos."
@@ -127,6 +129,7 @@ def safe_provider_error(exc: Exception) -> str:
         "endpoints locales o privados",
         "proveedores externos de IA estan bloqueados",
         "confirmacion RGPD para IA externa",
+        "Confirma en la app",
     )
     if any(fragment in message for fragment in safe_messages):
         return message

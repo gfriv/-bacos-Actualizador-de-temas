@@ -85,6 +85,7 @@ from app.services.file_storage import (
     uses_database_storage,
 )
 from app.services.jobs import QueueUnavailableError, enqueue_rq_job
+from app.services.legal_frameworks import legal_framework_catalog, resolve_legal_framework
 from app.services.report_quality_gate import assert_export_quality, evaluate_report_academic_quality
 from app.services.research_analysis import (
     build_anchor_context,
@@ -261,6 +262,11 @@ def demo_login(db: Session = Depends(get_db)) -> TokenResponse:
     return TokenResponse(access_token=create_access_token(str(user.id)))
 
 
+@router.get("/legal-frameworks")
+def list_legal_frameworks() -> list[dict[str, str]]:
+    return legal_framework_catalog()
+
+
 @router.post("/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
 def create_project(
     payload: ProjectCreate,
@@ -268,7 +274,14 @@ def create_project(
     current_user: User = Depends(get_current_user),
 ) -> Project:
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
-    project = Project(owner_id=current_user.id, status=ProjectStatus.draft, **payload.model_dump())
+    data = payload.model_dump()
+    data["legal_framework"] = resolve_legal_framework(
+        area=payload.area,
+        educational_level=payload.educational_level,
+        legal_framework=payload.legal_framework,
+        instructions=payload.instructions,
+    )
+    project = Project(owner_id=current_user.id, status=ProjectStatus.draft, **data)
     db.add(project)
     db.flush()
     audit(db, "project_created", user_id=current_user.id, project_id=project.id)
@@ -893,51 +906,42 @@ def consolidate_project(
 ) -> ConsolidatedDocument:
     project = _get_project_for_user(db, project_id, current_user)
     _require_roles(current_user, {UserRole.admin, UserRole.teacher})
-    active_document = _get_active_document(db, project.id)
-    section_query = select(DocumentSection).where(DocumentSection.project_id == project.id)
-    if active_document is not None:
-        section_query = section_query.where(DocumentSection.document_id == active_document.id)
-    sections = list(db.scalars(section_query.order_by(DocumentSection.order_index.asc())))
+    return _create_consolidated_document(db, project, current_user)
+
+
+@router.post("/projects/{project_id}/consolidate/approve-all", response_model=ConsolidatedDocumentRead)
+def approve_all_pending_and_consolidate(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ConsolidatedDocument:
+    project = _get_project_for_user(db, project_id, current_user)
+    _require_roles(current_user, {UserRole.admin, UserRole.teacher})
     suggestions = list(
         db.scalars(select(Suggestion).where(Suggestion.project_id == project.id, Suggestion.is_stale.is_(False)))
     )
-    approved_count = sum(
-        1 for suggestion in suggestions if suggestion.status in {SuggestionStatus.approved, SuggestionStatus.edited}
-    )
-    if approved_count == 0:
-        raise HTTPException(status_code=400, detail="No hay sugerencias aprobadas o editadas para consolidar.")
-
-    markdown = build_consolidated_markdown(sections, suggestions, project_title=project.title, provider="system")
-    try:
-        assert_export_quality(markdown, artifact_type="consolidated_document")
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    docx_filename = f"project-{project.id}-consolidated.docx"
-    if uses_database_storage():
-        with TemporaryDirectory() as tmp_dir:
-            docx_path = Path(tmp_dir) / docx_filename
-            write_markdown_docx(markdown, docx_path)
-            stored_docx_path = save_managed_file(
-                db,
-                docx_path.read_bytes(),
-                root_dir=settings.generated_dir,
-                filename=docx_filename,
-                content_type=DOCX_MEDIA_TYPE,
-                namespace="generated",
-            )
-    else:
-        generated_dir = Path(settings.generated_dir).resolve()
-        generated_dir.mkdir(parents=True, exist_ok=True)
-        docx_path = generated_dir / docx_filename
-        write_markdown_docx(markdown, docx_path)
-        stored_docx_path = str(docx_path)
-    consolidated = ConsolidatedDocument(project_id=project.id, content_markdown=markdown, docx_path=stored_docx_path)
-    db.add(consolidated)
-    project.status = ProjectStatus.consolidated
-    audit(db, "document_consolidated", user_id=current_user.id, project_id=project.id, approved_count=approved_count)
-    db.commit()
-    db.refresh(consolidated)
-    return consolidated
+    pending = [suggestion for suggestion in suggestions if suggestion.status == SuggestionStatus.pending]
+    if not suggestions:
+        raise HTTPException(status_code=400, detail="No hay sugerencias para validar.")
+    if not pending and not any(
+        suggestion.status in {SuggestionStatus.approved, SuggestionStatus.edited} for suggestion in suggestions
+    ):
+        raise HTTPException(status_code=400, detail="No hay sugerencias pendientes, aprobadas o editadas para consolidar.")
+    reviewed_at = datetime.now(UTC)
+    for suggestion in pending:
+        suggestion.status = SuggestionStatus.approved
+        suggestion.reviewed_at = reviewed_at
+        bulk_note = "Validada en bloque por el docente antes de consolidar."
+        suggestion.teacher_notes = f"{suggestion.teacher_notes}\n{bulk_note}" if suggestion.teacher_notes else bulk_note
+    if pending:
+        audit(
+            db,
+            "suggestions_bulk_approved",
+            user_id=current_user.id,
+            project_id=project.id,
+            approved_count=len(pending),
+        )
+    return _create_consolidated_document(db, project, current_user)
 
 
 @router.get("/projects/{project_id}/consolidated", response_model=ConsolidatedDocumentRead)
@@ -1214,6 +1218,54 @@ def _get_active_document(db: Session, project_id: int) -> Document | None:
         .where(Document.project_id == project_id, Document.is_active.is_(True))
         .order_by(Document.created_at.desc())
     )
+
+
+def _create_consolidated_document(db: Session, project: Project, current_user: User) -> ConsolidatedDocument:
+    active_document = _get_active_document(db, project.id)
+    section_query = select(DocumentSection).where(DocumentSection.project_id == project.id)
+    if active_document is not None:
+        section_query = section_query.where(DocumentSection.document_id == active_document.id)
+    sections = list(db.scalars(section_query.order_by(DocumentSection.order_index.asc())))
+    suggestions = list(
+        db.scalars(select(Suggestion).where(Suggestion.project_id == project.id, Suggestion.is_stale.is_(False)))
+    )
+    approved_count = sum(
+        1 for suggestion in suggestions if suggestion.status in {SuggestionStatus.approved, SuggestionStatus.edited}
+    )
+    if approved_count == 0:
+        raise HTTPException(status_code=400, detail="No hay sugerencias aprobadas o editadas para consolidar.")
+
+    markdown = build_consolidated_markdown(sections, suggestions, project_title=project.title, provider="system")
+    try:
+        assert_export_quality(markdown, artifact_type="consolidated_document")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    docx_filename = f"project-{project.id}-consolidated.docx"
+    if uses_database_storage():
+        with TemporaryDirectory() as tmp_dir:
+            docx_path = Path(tmp_dir) / docx_filename
+            write_markdown_docx(markdown, docx_path)
+            stored_docx_path = save_managed_file(
+                db,
+                docx_path.read_bytes(),
+                root_dir=settings.generated_dir,
+                filename=docx_filename,
+                content_type=DOCX_MEDIA_TYPE,
+                namespace="generated",
+            )
+    else:
+        generated_dir = Path(settings.generated_dir).resolve()
+        generated_dir.mkdir(parents=True, exist_ok=True)
+        docx_path = generated_dir / docx_filename
+        write_markdown_docx(markdown, docx_path)
+        stored_docx_path = str(docx_path)
+    consolidated = ConsolidatedDocument(project_id=project.id, content_markdown=markdown, docx_path=stored_docx_path)
+    db.add(consolidated)
+    project.status = ProjectStatus.consolidated
+    audit(db, "document_consolidated", user_id=current_user.id, project_id=project.id, approved_count=approved_count)
+    db.commit()
+    db.refresh(consolidated)
+    return consolidated
 
 
 def _mark_project_outputs_stale(db: Session, project_id: int) -> None:

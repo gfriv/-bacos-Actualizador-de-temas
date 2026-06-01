@@ -124,8 +124,8 @@ El `ModelRouter` no navega por internet por sí mismo. La app añade una capa in
 Variables:
 
 ```env
-WEB_SEARCH_PROVIDER=disabled
-EXTERNAL_WEB_SEARCH_ENABLED=false
+WEB_SEARCH_PROVIDER=duckduckgo
+EXTERNAL_WEB_SEARCH_ENABLED=true
 WEB_SEARCH_MAX_RESULTS=5
 WEB_SEARCH_TIMEOUT_SECONDS=6
 ANALYSIS_LLM_ENABLED=false
@@ -136,7 +136,7 @@ BRAVE_SEARCH_API_KEY=
 Proveedores:
 
 - `disabled`: no busca; útil para tests.
-- `duckduckgo`: proveedor sin clave para desarrollo local. Requiere `EXTERNAL_WEB_SEARCH_ENABLED=true`.
+- `duckduckgo`: proveedor sin clave para desarrollo local/demo. Es el valor por defecto actual para que los informes recuperen fuentes publicas.
 - `tavily`: búsqueda mediante API key de backend.
 - `brave`: Brave Search API mediante API key de backend.
 

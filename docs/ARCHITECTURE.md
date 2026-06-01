@@ -87,7 +87,7 @@ The LLM receives curated context from those services. It does not browse freely,
 
 For curricular analysis, it prioritizes official domains such as BOE, DOE/Junta de Extremadura, Educarex, Educagob, Ministerio de Educación and EU legal sources. The same flow supports preparation for Spanish teaching exams, including Infantil, Primaria, Secundaria and FP, by adding official BOE references for the relevant stage and the state teaching-entry regulation when applicable. When the project mentions Extremadura, the curated evidence layer also adds Ley 4/2011 de Educación de Extremadura, consolidated Extremadura LOMLOE curriculum decrees by stage, evaluation rules and FP references where applicable. Search results are not applied automatically; they become traceable `EvidenceSource` rows, optional `SuggestionEvidence` links, report references and `Suggestion.source_reference`.
 
-Providers are selected with `WEB_SEARCH_PROVIDER`: `disabled`, `duckduckgo`, `tavily` or `brave`. External search requires `EXTERNAL_WEB_SEARCH_ENABLED=true`; the default is disabled.
+Providers are selected with `WEB_SEARCH_PROVIDER`: `disabled`, `duckduckgo`, `tavily` or `brave`. The local/demo default is `duckduckgo` with `EXTERNAL_WEB_SEARCH_ENABLED=true` so reports can retrieve current public evidence without a paid key. For private pilots, set `WEB_SEARCH_PROVIDER=disabled` or use a contractual provider after privacy review.
 
 ## Structured Reports And Quality Gate
 

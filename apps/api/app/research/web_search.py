@@ -132,11 +132,13 @@ class BraveSearchProvider(WebSearchProvider):
         ]
 
 
-def get_web_search_provider(provider_name: str | None = None) -> WebSearchProvider:
+def get_web_search_provider(provider_name: str | None = None, *, enabled: bool | None = None) -> WebSearchProvider:
     selected = (provider_name or settings.web_search_provider).lower()
     if selected in {"disabled", "none", "off"}:
         return DisabledSearchProvider()
-    if not settings.external_web_search_enabled:
+    if enabled is False:
+        return DisabledSearchProvider()
+    if enabled is None and not settings.external_web_search_enabled:
         return DisabledSearchProvider()
     if selected == "duckduckgo":
         return DuckDuckGoSearchProvider()

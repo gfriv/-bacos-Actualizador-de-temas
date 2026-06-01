@@ -25,6 +25,7 @@ import {
   type AIProviderConfig,
   type AIProviderId,
   type AIProviderMode,
+  type WebSearchProviderId,
 } from "@/lib/ai/config";
 import {
   createAIProviderSession,
@@ -80,6 +81,9 @@ export function AIProviderSetup({
   const [loading, setLoading] = useState<"validate" | "models" | "pull" | "save" | null>(null);
   const [pullModel, setPullModel] = useState("qwen2.5:7b-instruct");
   const [pullConfirmed, setPullConfirmed] = useState(false);
+  const [externalDataConsent, setExternalDataConsent] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
+  const [webSearchProvider, setWebSearchProvider] = useState<WebSearchProviderId>("duckduckgo");
 
   useEffect(() => {
     const stored = getStoredAIConfig();
@@ -89,6 +93,9 @@ export function AIProviderSetup({
       setApiKey(stored.apiKey ?? "");
       setBaseUrl(stored.baseUrl ?? "");
       setModel(stored.model ?? "");
+      setExternalDataConsent(Boolean(stored.externalDataProcessingConfirmed));
+      setWebSearchEnabled(stored.webSearchEnabled ?? true);
+      setWebSearchProvider(stored.webSearchProvider ?? "duckduckgo");
     }
     void listAIProviderDescriptors().then(setDescriptors);
   }, []);
@@ -137,8 +144,11 @@ export function AIProviderSetup({
       apiKey: apiKey.trim() || undefined,
       baseUrl: baseUrl.trim() || undefined,
       model: model.trim() || undefined,
+      externalDataProcessingConfirmed: externalDataConsent,
+      webSearchEnabled,
+      webSearchProvider,
     }),
-    [apiKey, baseUrl, mode, model, providerId],
+    [apiKey, baseUrl, externalDataConsent, mode, model, providerId, webSearchEnabled, webSearchProvider],
   );
 
   function applyProvider(provider: AIProviderDescriptor) {
@@ -162,6 +172,10 @@ export function AIProviderSetup({
     }
     if (requiresApiKey && !apiKey.trim()) {
       toast.error("Introduce una API key para validar este proveedor.");
+      return;
+    }
+    if (mode === "api" && !externalDataConsent) {
+      toast.error("Confirma antes que el proveedor externo recibira fragmentos del documento para procesarlos.");
       return;
     }
     setLoading("validate");
@@ -218,6 +232,10 @@ export function AIProviderSetup({
       toast.error("La clave API es obligatoria para este proveedor.");
       return;
     }
+    if (mode === "api" && !externalDataConsent) {
+      toast.error("Confirma antes el tratamiento externo de datos para usar una API real.");
+      return;
+    }
     if (providerId !== "mock" && !model.trim()) {
       toast.error("Elige o escribe un modelo antes de guardar.");
       return;
@@ -227,6 +245,9 @@ export function AIProviderSetup({
       mode,
       baseUrl: baseUrl.trim() || undefined,
       model: model.trim() || undefined,
+      externalDataProcessingConfirmed: externalDataConsent,
+      webSearchEnabled,
+      webSearchProvider,
     };
 
     if (!hasBackendSession) {
@@ -388,6 +409,53 @@ export function AIProviderSetup({
               />
             </label>
           ) : null}
+
+          {mode === "api" ? (
+            <label className="flex items-start gap-2 rounded-lg border border-abacos-yellow/60 bg-yellow-50 p-3 text-xs leading-5 text-abacos-black">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-abacos-red"
+                checked={externalDataConsent}
+                onChange={(event) => setExternalDataConsent(event.target.checked)}
+              />
+              Confirmo que el proveedor de IA externo seleccionado puede recibir los fragmentos necesarios del
+              documento para generar informes y sugerencias. La API key se envia al backend para crear una sesion
+              efimera y no se guarda completa en el navegador.
+            </label>
+          ) : null}
+
+          <div className="grid gap-2 rounded-lg border border-border bg-white p-3 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-abacos-black">Busqueda web para informes</p>
+                <p className="mt-1 text-xs leading-5 text-abacos-gray">
+                  Se usa para recuperar fuentes oficiales y evidencias trazables; nunca consolida cambios sin revision docente.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-abacos-red"
+                checked={webSearchEnabled}
+                onChange={(event) => setWebSearchEnabled(event.target.checked)}
+                aria-label="Activar busqueda web"
+              />
+            </div>
+            <Select
+              value={webSearchProvider}
+              onValueChange={(value) => setWebSearchProvider(value as WebSearchProviderId)}
+              disabled={!webSearchEnabled}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="duckduckgo">DuckDuckGo sin clave</SelectItem>
+                <SelectItem value="tavily">Tavily API</SelectItem>
+                <SelectItem value="brave">Brave Search API</SelectItem>
+                <SelectItem value="disabled">Sin busqueda web</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
             <Input

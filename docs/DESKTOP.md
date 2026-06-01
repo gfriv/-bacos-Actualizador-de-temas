@@ -49,8 +49,8 @@ Medidas verificadas el 31/05/2026:
 
 - `desktop-runtime/python`: 132,7 MB.
 - `release/win-unpacked/resources/python`: 133,5 MB.
-- `release/AbacosIA-Setup-0.1.1.exe`: 230.191.110 bytes.
-- SHA-256 del instalador `0.1.1`: `9E7CBB4583BE660A8EA95CDF4C2CD1DDB635B5F55FC6DD2D42589017DA6470AC`.
+- `release/AbacosIA-Setup-0.1.2.exe`: 230.199.558 bytes.
+- SHA-256 del instalador `0.1.2`: `62963F501BFA21FA617B33B8ED1E5807C7E9213E300424390157C1B0D6B8227C`.
 
 Prueba de paquete desempaquetado:
 

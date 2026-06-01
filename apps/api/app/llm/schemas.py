@@ -51,6 +51,9 @@ class AIProviderConfig(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
+    external_data_processing_confirmed: bool = False
+    web_search_enabled: bool = True
+    web_search_provider: Literal["duckduckgo", "tavily", "brave", "disabled"] | None = "duckduckgo"
 
 
 class ModelInfo(BaseModel):

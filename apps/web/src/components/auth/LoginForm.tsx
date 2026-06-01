@@ -12,7 +12,8 @@ export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("profesor@example.com");
   const [password, setPassword] = useState("abacos-demo");
-  const [fullName, setFullName] = useState("Profesor Ábacos");
+  const [fullName, setFullName] = useState("Profesor Abacos");
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
 
@@ -20,11 +21,11 @@ export function LoginForm() {
     event.preventDefault();
     setLoading(true);
     try {
-      await registerAndLogin(email, password, fullName);
-      toast.success("Sesión iniciada");
+      await registerAndLogin(email, password, fullName, remember);
+      toast.success("Sesion iniciada");
       router.push("/dashboard");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo iniciar sesión");
+      toast.error(error instanceof Error ? error.message : "No se pudo iniciar sesion");
     } finally {
       setLoading(false);
     }
@@ -33,7 +34,7 @@ export function LoginForm() {
   async function handleDemoLogin() {
     setDemoLoading(true);
     try {
-      await loginDemo();
+      await loginDemo(remember);
       toast.success("Modo demo docente iniciado");
       router.push("/dashboard");
     } catch (error) {
@@ -69,7 +70,7 @@ export function LoginForm() {
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          aria-label="Correo electrónico"
+          aria-label="Correo electronico"
         />
         <Input
           value={fullName}
@@ -80,8 +81,17 @@ export function LoginForm() {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          aria-label="Contraseña"
+          aria-label="Contrasena"
         />
+        <label className="flex items-start gap-2 rounded-md border border-border bg-abacos-light p-3 text-xs leading-5 text-abacos-gray">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-abacos-red"
+            checked={remember}
+            onChange={(event) => setRemember(event.target.checked)}
+          />
+          Recordar acceso en este equipo local. No guarda roles ni claves de IA; solo conserva la sesion del usuario.
+        </label>
         <Button type="submit" variant="outline" disabled={loading}>
           <KeyRound className="h-4 w-4" aria-hidden />
           {loading ? "Entrando..." : "Entrar con usuario local"}

@@ -8,6 +8,8 @@ export type AIProviderId =
   | "openai_compatible"
   | "ollama";
 
+export type WebSearchProviderId = "duckduckgo" | "tavily" | "brave" | "disabled";
+
 export type AIProviderConfig = {
   providerId: AIProviderId;
   mode: AIProviderMode;
@@ -16,6 +18,9 @@ export type AIProviderConfig = {
   model?: string;
   aiSessionId?: string;
   expiresAt?: string;
+  externalDataProcessingConfirmed?: boolean;
+  webSearchEnabled?: boolean;
+  webSearchProvider?: WebSearchProviderId;
 };
 
 export type BackendAIProviderConfig = {
@@ -24,6 +29,9 @@ export type BackendAIProviderConfig = {
   api_key?: string | null;
   base_url?: string | null;
   model?: string | null;
+  external_data_processing_confirmed?: boolean;
+  web_search_enabled?: boolean;
+  web_search_provider?: WebSearchProviderId | null;
 };
 
 export const AI_CONFIG_STORAGE_KEY = "abacos_ai_provider_config";
@@ -36,6 +44,9 @@ export function toBackendAIConfig(config: AIProviderConfig): BackendAIProviderCo
     api_key: config.apiKey || null,
     base_url: config.baseUrl || null,
     model: config.model || null,
+    external_data_processing_confirmed: Boolean(config.externalDataProcessingConfirmed),
+    web_search_enabled: config.webSearchEnabled ?? true,
+    web_search_provider: config.webSearchProvider ?? "duckduckgo",
   };
 }
 
@@ -46,6 +57,9 @@ export function toFrontendAIConfig(config: BackendAIProviderConfig): AIProviderC
     apiKey: config.api_key ?? undefined,
     baseUrl: config.base_url ?? undefined,
     model: config.model ?? undefined,
+    externalDataProcessingConfirmed: config.external_data_processing_confirmed ?? false,
+    webSearchEnabled: config.web_search_enabled ?? true,
+    webSearchProvider: config.web_search_provider ?? "duckduckgo",
   };
 }
 

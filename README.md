@@ -129,22 +129,22 @@ No se piden usuarios ni contraseñas de ChatGPT, Gemini, Claude ni servicios sim
 
 ## Busqueda Actualizada Para Informes
 
-El analisis incorpora una capa opcional de busqueda web antes de crear informes y sugerencias. Por privacidad, queda desactivada por defecto. Las fuentes localizadas se guardan como `EvidenceSource`, se vinculan a sugerencias cuando procede y tambien quedan resumidas en `source_reference` para revision docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un proveedor permitido, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM esta desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
+El analisis incorpora una capa de busqueda web antes de crear informes y sugerencias. En local/demo queda activa con DuckDuckGo para recuperar fuentes publicas actuales sin clave de pago. Las fuentes localizadas se guardan como `EvidenceSource`, se vinculan a sugerencias cuando procede y tambien quedan resumidas en `source_reference` para revision docente. Si `ANALYSIS_LLM_ENABLED=true` y `LLM_PROVIDER` apunta a un proveedor permitido, el ModelRouter sintetiza sugerencias con esas fuentes como contexto; si el LLM esta desactivado o falla, la API conserva un fallback trazable basado en las evidencias recuperadas.
 
 Antes de buscar, el backend extrae `claims` del documento: afirmaciones normativas, curriculares, cientificas, bibliograficas y didacticas que merecen contraste. Con esos claims construye un `ResearchPlan` por capas: normativa estatal, normativa autonomica, busqueda academica y bibliografia. Las evidencias recuperadas se ordenan con `SourceRanker`, que pondera autoridad del dominio, vigencia, relevancia legal, coincidencia con claims y calidad de cita. El LLM no decide que fuente vale: recibe un paquete de contexto ya curado y puntuado por el backend.
 
 Modo seguro por defecto:
 
 ```env
-WEB_SEARCH_PROVIDER=disabled
-EXTERNAL_WEB_SEARCH_ENABLED=false
+WEB_SEARCH_PROVIDER=duckduckgo
+EXTERNAL_WEB_SEARCH_ENABLED=true
 OFFICIAL_SOURCE_FETCH_ENABLED=true
 WEB_SEARCH_MAX_RESULTS=5
 WEB_SEARCH_TIMEOUT_SECONDS=6
 ANALYSIS_LLM_ENABLED=false
 ```
 
-`OFFICIAL_SOURCE_FETCH_ENABLED=true` permite recuperar fuentes oficiales curadas de BOE/DOE aunque la bÃºsqueda web general estÃ© desactivada. No sustituye la comprobaciÃ³n docente de normativa.
+`OFFICIAL_SOURCE_FETCH_ENABLED=true` permite recuperar fuentes oficiales curadas de BOE/DOE aunque la busqueda web general este desactivada. No sustituye la comprobacion docente de normativa.
 
 Modo local con busqueda web sin clave, solo si el operador acepta enviar consultas a un buscador externo:
 
@@ -334,7 +334,7 @@ El modo escritorio:
 - ofrece un wizard inicial para elegir API propia u Ollama local;
 - usa `http://127.0.0.1:11434/api/tags` para detectar modelos de Ollama.
 
-El instalador Windows genera un runtime Python embebido para arrancar FastAPI sin Python/uv externos en el equipo del usuario. El instalador verificado del 31/05/2026 es `release/AbacosIA-Setup-0.1.1.exe`, pesa `230.191.110 bytes` y contiene la correccion de la puerta de calidad para no bloquear texto docente normal como "todo" ni URLs publicas con `/app/`. SHA-256: `9E7CBB4583BE660A8EA95CDF4C2CD1DDB635B5F55FC6DD2D42589017DA6470AC`. Sigue pendiente probarlo en una maquina limpia y firmar el ejecutable antes de distribuirlo ampliamente. Ver `docs/DESKTOP.md` e `INSTRUCCIONES_INSTALACION.md`.
+El instalador Windows genera un runtime Python embebido para arrancar FastAPI sin Python/uv externos en el equipo del usuario. El instalador generado el 01/06/2026 es `release/AbacosIA-Setup-0.1.2.exe`, pesa `230.199.558 bytes` e incluye normativa opcional/inferida, busqueda web activa para evidencias, consentimiento por sesion de API real, recordar acceso local y validacion en bloque antes de consolidar. SHA-256: `62963F501BFA21FA617B33B8ED1E5807C7E9213E300424390157C1B0D6B8227C`. Sigue pendiente probarlo en una maquina limpia y firmar el ejecutable antes de distribuirlo ampliamente. Ver `docs/DESKTOP.md` e `INSTRUCCIONES_INSTALACION.md`.
 
 ## Tests Y Calidad
 

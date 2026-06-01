@@ -44,7 +44,7 @@ class ProjectCreate(BaseModel):
     title: str
     area: str
     educational_level: str
-    legal_framework: str
+    legal_framework: str | None = None
     bibliography_notes: str | None = None
     instructions: str | None = None
 

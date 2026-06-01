@@ -17,6 +17,13 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1
 export const TOKEN_KEY = "abacos_access_token";
 export const DEMO_MODE_KEY = "abacos_demo_mode";
 
+export type LegalFrameworkOption = {
+  id: string;
+  label: string;
+  value: string;
+  description: string;
+};
+
 export type Project = {
   id: number;
   owner_id: number;
@@ -144,32 +151,42 @@ export type ProjectCreatePayload = {
   title: string;
   area: string;
   educational_level: string;
-  legal_framework: string;
+  legal_framework?: string | null;
   bibliography_notes?: string;
   instructions?: string;
 };
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.sessionStorage.getItem(TOKEN_KEY);
+  return window.sessionStorage.getItem(TOKEN_KEY) ?? window.localStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token: string): void {
-  window.sessionStorage.setItem(TOKEN_KEY, token);
+export function setToken(token: string, remember = false): void {
+  clearToken();
+  const storage = remember ? window.localStorage : window.sessionStorage;
+  storage.setItem(TOKEN_KEY, token);
 }
 
 export function clearToken(): void {
   window.sessionStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(TOKEN_KEY);
   window.sessionStorage.removeItem(DEMO_MODE_KEY);
+  window.localStorage.removeItem(DEMO_MODE_KEY);
 }
 
 function isOfflineDemoMode(): boolean {
   if (typeof window === "undefined") return false;
-  return window.sessionStorage.getItem(DEMO_MODE_KEY) === "true" && getToken() === LOCAL_DEMO_TOKEN;
+  const enabled =
+    window.sessionStorage.getItem(DEMO_MODE_KEY) === "true" ||
+    window.localStorage.getItem(DEMO_MODE_KEY) === "true";
+  return enabled && getToken() === LOCAL_DEMO_TOKEN;
 }
 
-function setOfflineDemoMode(enabled: boolean): void {
-  window.sessionStorage.setItem(DEMO_MODE_KEY, enabled ? "true" : "false");
+function setOfflineDemoMode(enabled: boolean, remember = false): void {
+  window.sessionStorage.removeItem(DEMO_MODE_KEY);
+  window.localStorage.removeItem(DEMO_MODE_KEY);
+  const storage = remember ? window.localStorage : window.sessionStorage;
+  storage.setItem(DEMO_MODE_KEY, enabled ? "true" : "false");
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -214,7 +231,7 @@ function shouldAttachAIConfig(path: string, method: string | undefined): boolean
   );
 }
 
-export async function registerAndLogin(email: string, password: string, fullName: string) {
+export async function registerAndLogin(email: string, password: string, fullName: string, remember = false) {
   try {
     await apiFetch("/auth/register", {
       method: "POST",
@@ -229,23 +246,27 @@ export async function registerAndLogin(email: string, password: string, fullName
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  setToken(token.access_token);
+  setToken(token.access_token, remember);
   return token;
 }
 
-export async function loginDemo() {
+export async function loginDemo(remember = false) {
   try {
     const token = await apiFetch<{ access_token: string }>("/auth/demo", {
       method: "POST",
     });
-    setOfflineDemoMode(false);
-    setToken(token.access_token);
+    setOfflineDemoMode(false, remember);
+    setToken(token.access_token, remember);
     return token;
   } catch {
-    setToken(LOCAL_DEMO_TOKEN);
-    setOfflineDemoMode(true);
+    setToken(LOCAL_DEMO_TOKEN, remember);
+    setOfflineDemoMode(true, remember);
     return { access_token: LOCAL_DEMO_TOKEN };
   }
+}
+
+export function listLegalFrameworks() {
+  return apiFetch<LegalFrameworkOption[]>("/legal-frameworks");
 }
 
 export function listProjects() {
@@ -271,7 +292,9 @@ export function createProject(payload: ProjectCreatePayload) {
       title: payload.title,
       area: payload.area,
       educational_level: payload.educational_level,
-      legal_framework: payload.legal_framework,
+      legal_framework:
+        payload.legal_framework?.trim() ||
+        "Marco normativo inferido automaticamente en modo demo; requiere verificacion docente.",
       bibliography_notes: payload.bibliography_notes ?? null,
       instructions: payload.instructions ?? null,
       status: "draft",
@@ -423,6 +446,26 @@ export function consolidateProject(projectId: string | number) {
     return Promise.resolve({ ...demoConsolidated, project_id: Number(projectId) });
   }
   return apiFetch<ConsolidatedDocument>(`/projects/${projectId}/consolidate`, {
+    method: "POST",
+  });
+}
+
+export function approveAllAndConsolidateProject(projectId: string | number) {
+  if (isOfflineDemoMode()) {
+    const suggestions = getDemoSuggestions().filter(
+      (suggestion) => suggestion.project_id === Number(projectId),
+    );
+    for (const suggestion of suggestions) {
+      if (suggestion.status === "pending") {
+        updateDemoSuggestion(suggestion.id, {
+          status: "approved",
+          teacher_notes: "Validada en bloque por el docente antes de consolidar.",
+        });
+      }
+    }
+    return consolidateProject(projectId);
+  }
+  return apiFetch<ConsolidatedDocument>(`/projects/${projectId}/consolidate/approve-all`, {
     method: "POST",
   });
 }

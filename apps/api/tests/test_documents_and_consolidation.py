@@ -334,6 +334,62 @@ def test_consolidation_rejects_pending_only(client: TestClient, auth_headers: di
     assert "No hay sugerencias aprobadas" in response.json()["detail"]
 
 
+def test_bulk_approval_consolidates_pending_suggestions(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    project_id = create_project(client, auth_headers)
+    client.post(
+        f"/api/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={
+            "file": (
+                "tema.docx",
+                make_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+    section_id = client.get(f"/api/projects/{project_id}/sections", headers=auth_headers).json()[0]["id"]
+    pending = client.post(
+        f"/api/projects/{project_id}/suggestions",
+        headers=auth_headers,
+        json={
+            "section_id": section_id,
+            "suggestion_type": "scientific_update",
+            "original_fragment": "Texto original",
+            "proposed_change": "Texto actualizado con validacion en bloque",
+            "justification": "Cambio pendiente que el docente valida en bloque antes de consolidar.",
+            "source_reference": "MockProvider",
+            "confidence_level": "medium",
+        },
+    ).json()
+    rejected = client.post(
+        f"/api/projects/{project_id}/suggestions",
+        headers=auth_headers,
+        json={
+            "section_id": section_id,
+            "suggestion_type": "didactic_improvement",
+            "original_fragment": "Texto original",
+            "proposed_change": "CAMBIO RECHAZADO QUE NO DEBE APARECER",
+            "justification": "Debe permanecer fuera.",
+            "source_reference": "MockProvider",
+            "confidence_level": "medium",
+        },
+    ).json()
+    client.patch(f"/api/suggestions/{rejected['id']}", headers=auth_headers, json={"status": "rejected"})
+
+    consolidated = client.post(f"/api/projects/{project_id}/consolidate/approve-all", headers=auth_headers)
+
+    assert consolidated.status_code == 200
+    body = consolidated.json()["content_markdown"]
+    assert "Texto actualizado con validacion en bloque" in body
+    assert "CAMBIO RECHAZADO QUE NO DEBE APARECER" not in body
+    suggestions = client.get(f"/api/projects/{project_id}/suggestions", headers=auth_headers).json()
+    statuses = {suggestion["id"]: suggestion["status"] for suggestion in suggestions}
+    assert statuses[pending["id"]] == "approved"
+    assert statuses[rejected["id"]] == "rejected"
+
+
 def test_consolidation_skips_approved_suggestion_when_anchor_fails(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
